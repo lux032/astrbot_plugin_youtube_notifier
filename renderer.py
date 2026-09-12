@@ -125,6 +125,9 @@ class NotificationRenderer:
         style = TYPE_STYLE.get(ntype, DEFAULT_STYLE)
         accent = style["accent"]
         label = style["label"]
+        # 测试通知：图上必须能一眼看出是测试，避免被当成真实推送
+        if data.get("test"):
+            label = f"🧪 测试 {label}"
         title = (data.get("title") or "").strip() or "（无标题）"
         channel = (data.get("channel_name") or "").strip()
         start_time = format_time_zh(data.get("start_time"))

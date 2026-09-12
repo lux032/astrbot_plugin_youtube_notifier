@@ -15,7 +15,19 @@
         "type": "string",
         "default": "data_api",
         "options": ["data_api", "livebroadcasts", "feed", "auto"],
-        "hint": "data_api=官方 Data API（推荐，任意频道，仅需 API Key）；livebroadcasts=LiveBroadcasts API（需下方 OAuth，且只能监控你自己的频道）；feed=legacy Atom feed（⚠️ 该端点自 2025 年底起大量返回 404，已不可靠）；auto=优先 data_api，无 Key 时回退 feed。"
+        "hint": "data_api=官方 Data API（推荐，任意频道，仅需 API Key）；livebroadcasts=LiveBroadcasts API（需下方 OAuth，且只能监控你自己的频道）；feed=legacy Atom feed（⚠️ 该端点自 2025 年底起大量返回 404，已不可靠）；auto=优先 data_api，无 Key 时回退网页 JSON。"
+      },
+      "page_fallback_enabled": {
+        "description": "启用网页 JSON 兜底（推荐）",
+        "type": "bool",
+        "default": true,
+        "hint": "当 Data API 配额耗尽或请求失败（以及未配置 API Key）时，自动改为抓取 YouTube 频道页里的 ytInitialData 来判断直播与投稿。实测可用，比 legacy Atom feed 可靠得多。注意：直播只能在 /streams 标签页拿到，因此每次兜底需抓 2 个页面（约 2.4MB），且没有精确时间戳。关闭后无 Key 将回退到已不可靠的 legacy feed。"
+      },
+      "page_fallback_min_interval_seconds": {
+        "description": "网页兜底最小抓取间隔（秒）",
+        "type": "int",
+        "default": 60,
+        "hint": "同一频道同一标签页的最小抓取间隔，防止配额耗尽后把带宽打满。默认 60 秒，建议不要低于轮询间隔的一半。"
       },
       "poll_interval_seconds": {
         "description": "轮询间隔（秒）",

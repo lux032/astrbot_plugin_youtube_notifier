@@ -1,0 +1,430 @@
+{
+ "responseContext": {
+  "visitorData": "fixture"
+ },
+ "contents": {
+  "twoColumnBrowseResultsRenderer": {
+   "tabs": [
+    {
+     "tabRenderer": {
+      "title": "videos",
+      "selected": true,
+      "content": {
+       "richGridRenderer": {
+        "contents": [
+         {
+          "richItemRenderer": {
+           "content": {
+            "lockupViewModel": {
+             "contentId": "gTKS8SAwUzE",
+             "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+             "metadata": {
+              "lockupMetadataViewModel": {
+               "title": {
+                "content": "I Survived The Most Extreme Places On Earth"
+               },
+               "metadata": {
+                "contentMetadataViewModel": {
+                 "metadataRows": [
+                  {
+                   "metadataParts": [
+                    {
+                     "text": {
+                      "content": "81M views"
+                     }
+                    },
+                    {
+                     "text": {
+                      "content": "6 days ago"
+                     }
+                    }
+                   ]
+                  }
+                 ]
+                }
+               }
+              }
+             },
+             "contentImage": {
+              "thumbnailViewModel": {
+               "image": {
+                "sources": [
+                 {
+                  "url": "https://i.ytimg.com/vi/gTKS8SAwUzE/hq720_custom_2.jpg?sqp=CIzXk9UG-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLB46uBOL4k6DVQmv3yTAn0ZCcmeqA",
+                  "width": 360
+                 },
+                 {
+                  "url": "https://i.ytimg.com/vi/gTKS8SAwUzE/hq720_custom_2.jpg?sqp=CIzXk9UG-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLAXjDAdFRAXkgOrDQM4Gp10vqUg5Q",
+                  "width": 720
+                 }
+                ]
+               },
+               "overlays": [
+                {
+                 "thumbnailBottomOverlayViewModel": {
+                  "badges": [
+                   {
+                    "thumbnailBadgeViewModel": {
+                     "text": "23:28",
+                     "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT"
+                    }
+                   }
+                  ]
+                 }
+                }
+               ]
+              }
+             }
+            }
+           }
+          }
+         },
+         {
+          "richItemRenderer": {
+           "content": {
+            "lockupViewModel": {
+             "contentId": "Qtl8lJwbd4g",
+             "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+             "metadata": {
+              "lockupMetadataViewModel": {
+               "title": {
+                "content": "Escape 100 Cops, Win $500,000"
+               },
+               "metadata": {
+                "contentMetadataViewModel": {
+                 "metadataRows": [
+                  {
+                   "metadataParts": [
+                    {
+                     "text": {
+                      "content": "100M views"
+                     }
+                    },
+                    {
+                     "text": {
+                      "content": "2 weeks ago"
+                     }
+                    }
+                   ]
+                  }
+                 ]
+                }
+               }
+              }
+             },
+             "contentImage": {
+              "thumbnailViewModel": {
+               "image": {
+                "sources": [
+                 {
+                  "url": "https://i.ytimg.com/vi/Qtl8lJwbd4g/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLDYo-C9AVD33MVVM67HNVcA-TuZ_w",
+                  "width": 360
+                 },
+                 {
+                  "url": "https://i.ytimg.com/vi/Qtl8lJwbd4g/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCQ474K3eHYat_C7AiRCDyG0MilTw",
+                  "width": 720
+                 }
+                ]
+               },
+               "overlays": [
+                {
+                 "thumbnailBottomOverlayViewModel": {
+                  "badges": [
+                   {
+                    "thumbnailBadgeViewModel": {
+                     "text": "20:29",
+                     "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT"
+                    }
+                   }
+                  ]
+                 }
+                }
+               ]
+              }
+             }
+            }
+           }
+          }
+         },
+         {
+          "richItemRenderer": {
+           "content": {
+            "lockupViewModel": {
+             "contentId": "Af6i6ChAVTw",
+             "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+             "metadata": {
+              "lockupMetadataViewModel": {
+               "title": {
+                "content": "Last To Leave Mansion, Keeps It"
+               },
+               "metadata": {
+                "contentMetadataViewModel": {
+                 "metadataRows": [
+                  {
+                   "metadataParts": [
+                    {
+                     "text": {
+                      "content": "111M views"
+                     }
+                    },
+                    {
+                     "text": {
+                      "content": "1 month ago"
+                     }
+                    }
+                   ]
+                  }
+                 ]
+                }
+               }
+              }
+             },
+             "contentImage": {
+              "thumbnailViewModel": {
+               "image": {
+                "sources": [
+                 {
+                  "url": "https://i.ytimg.com/vi/Af6i6ChAVTw/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLBesUNeRj88MbUGLg2P_z_iq6rnmg",
+                  "width": 360
+                 },
+                 {
+                  "url": "https://i.ytimg.com/vi/Af6i6ChAVTw/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLBVxDiZD85_wbS2cbWcB-31LkwG4g",
+                  "width": 720
+                 }
+                ]
+               },
+               "overlays": [
+                {
+                 "thumbnailBottomOverlayViewModel": {
+                  "badges": [
+                   {
+                    "thumbnailBadgeViewModel": {
+                     "text": "57:51",
+                     "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT"
+                    }
+                   }
+                  ]
+                 }
+                }
+               ]
+              }
+             }
+            }
+           }
+          }
+         },
+         {
+          "richItemRenderer": {
+           "content": {
+            "lockupViewModel": {
+             "contentId": "lVylRtlPOIE",
+             "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+             "metadata": {
+              "lockupMetadataViewModel": {
+               "title": {
+                "content": "I Granted 100 Kids Their Biggest Wish!"
+               },
+               "metadata": {
+                "contentMetadataViewModel": {
+                 "metadataRows": [
+                  {
+                   "metadataParts": [
+                    {
+                     "text": {
+                      "content": "61M views"
+                     }
+                    },
+                    {
+                     "text": {
+                      "content": "1 month ago"
+                     }
+                    }
+                   ]
+                  }
+                 ]
+                }
+               }
+              }
+             },
+             "contentImage": {
+              "thumbnailViewModel": {
+               "image": {
+                "sources": [
+                 {
+                  "url": "https://i.ytimg.com/vi/lVylRtlPOIE/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLAiOaZnWEEYMbjg1cBZd-6k8AnHrQ",
+                  "width": 360
+                 },
+                 {
+                  "url": "https://i.ytimg.com/vi/lVylRtlPOIE/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLAt9_954zW-TDnCloFTYnL3wb18TQ",
+                  "width": 720
+                 }
+                ]
+               },
+               "overlays": [
+                {
+                 "thumbnailBottomOverlayViewModel": {
+                  "badges": [
+                   {
+                    "thumbnailBadgeViewModel": {
+                     "text": "14:35",
+                     "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT"
+                    }
+                   }
+                  ]
+                 }
+                }
+               ]
+              }
+             }
+            }
+           }
+          }
+         },
+         {
+          "richItemRenderer": {
+           "content": {
+            "lockupViewModel": {
+             "contentId": "iYlODtkyw_I",
+             "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+             "metadata": {
+              "lockupMetadataViewModel": {
+               "title": {
+                "content": "Survive 30 Days Chained To A Stranger, Win $250,000"
+               },
+               "metadata": {
+                "contentMetadataViewModel": {
+                 "metadataRows": [
+                  {
+                   "metadataParts": [
+                    {
+                     "text": {
+                      "content": "94M views"
+                     }
+                    },
+                    {
+                     "text": {
+                      "content": "2 months ago"
+                     }
+                    }
+                   ]
+                  }
+                 ]
+                }
+               }
+              }
+             },
+             "contentImage": {
+              "thumbnailViewModel": {
+               "image": {
+                "sources": [
+                 {
+                  "url": "https://i.ytimg.com/vi/iYlODtkyw_I/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCuVXIitfYmJNj1RtkGZpdzQi6JTQ",
+                  "width": 360
+                 },
+                 {
+                  "url": "https://i.ytimg.com/vi/iYlODtkyw_I/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLDF1WQuEWBvxfrQELLLeJYK43dIlQ",
+                  "width": 720
+                 }
+                ]
+               },
+               "overlays": [
+                {
+                 "thumbnailBottomOverlayViewModel": {
+                  "badges": [
+                   {
+                    "thumbnailBadgeViewModel": {
+                     "text": "35:05",
+                     "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT"
+                    }
+                   }
+                  ]
+                 }
+                }
+               ]
+              }
+             }
+            }
+           }
+          }
+         },
+         {
+          "richItemRenderer": {
+           "content": {
+            "lockupViewModel": {
+             "contentId": "__fmDj0ZJ1Q",
+             "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+             "metadata": {
+              "lockupMetadataViewModel": {
+               "title": {
+                "content": "50 YouTube Legends Fight For $1,000,000"
+               },
+               "metadata": {
+                "contentMetadataViewModel": {
+                 "metadataRows": [
+                  {
+                   "metadataParts": [
+                    {
+                     "text": {
+                      "content": "84M views"
+                     }
+                    },
+                    {
+                     "text": {
+                      "content": "2 months ago"
+                     }
+                    }
+                   ]
+                  }
+                 ]
+                }
+               }
+              }
+             },
+             "contentImage": {
+              "thumbnailViewModel": {
+               "image": {
+                "sources": [
+                 {
+                  "url": "https://i.ytimg.com/vi/__fmDj0ZJ1Q/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLBQKrZxSDpG48MHdT6nlyclBUhCbg",
+                  "width": 360
+                 },
+                 {
+                  "url": "https://i.ytimg.com/vi/__fmDj0ZJ1Q/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCndn0A99_wrYWD9mgXwf_QIHOc_A",
+                  "width": 720
+                 }
+                ]
+               },
+               "overlays": [
+                {
+                 "thumbnailBottomOverlayViewModel": {
+                  "badges": [
+                   {
+                    "thumbnailBadgeViewModel": {
+                     "text": "32:08",
+                     "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT"
+                    }
+                   }
+                  ]
+                 }
+                }
+               ]
+              }
+             }
+            }
+           }
+          }
+         }
+        ]
+       }
+      }
+     }
+    }
+   ]
+  }
+ },
+ "metadata": {
+  "microformatDataRenderer": {
+   "urlCanonical": "https://www.youtube.com/channel/UCX6OQ3DkcsbYNE6H8uQQuVA"
+  }
+ }
+}

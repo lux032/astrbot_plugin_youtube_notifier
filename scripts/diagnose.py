@@ -19,6 +19,9 @@
     # 顺带体检 legacy feed（预期会失败，用于确认该端点确实不可用）
     python scripts/diagnose.py @ukaisaki --api-key AIza... --check-feed
 
+    # 只体检网页 JSON 兜底（不需要 API Key —— 降级链的首选兜底）
+    python scripts/diagnose.py @ukaisaki --check-page
+
     # 离线解析本地 XML
     python scripts/diagnose.py --file feed.xml
 """
@@ -63,6 +66,9 @@ from astrbot_plugin_youtube_notifier.services.data_api import (  # noqa: E402
 from astrbot_plugin_youtube_notifier.services.feed import (  # noqa: E402
     LegacyFeedClient,
     parse_feed,
+)
+from astrbot_plugin_youtube_notifier.services.page_json import (  # noqa: E402
+    ChannelPageClient,
 )
 
 
@@ -130,19 +136,65 @@ async def run_api(channel_input: str, api_key: str, proxy: str, max_results: int
     return 0
 
 
+async def check_page(channel_input: str, proxy: str, max_results: int) -> int:
+    """体检网页 JSON 兜底数据源（Data API 不可用时的首选降级路径）。
+
+    不需要 API Key：这条路正是为「没 Key」或「配额耗尽」准备的。
+    """
+    import aiohttp
+
+    print()
+    _line()
+    print("③ 网页 JSON 兜底体检（/videos + /streams）")
+    _line()
+    timeout = aiohttp.ClientTimeout(total=60, connect=10)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        client = ChannelPageClient(session, proxy=proxy, min_interval=0)
+        meta = await client.resolve_channel(channel_input, respect_throttle=False)
+        if meta is None:
+            print("❌ 频道页解析失败（网络/代理不通，或页面结构变化）")
+            return 1
+        print(f"channel_id : {meta.channel_id}")
+        print(f"title      : {meta.title!r}")
+        print(f"uploads    : {meta.uploads_playlist_id}")
+
+        snap = await client.fetch_snapshot(
+            meta.channel_id, meta.handle or channel_input,
+            max_results=max_results, channel_name=meta.title,
+            respect_throttle=False,
+        )
+        if snap is None:
+            print("❌ 快照抓取失败（/videos 与 /streams 都没拿到）")
+            return 1
+
+        live = snap.find_live()
+        print(f"\n共 {len(snap.entries)} 条（直播免疫 max_results 截断）：")
+        for i, e in enumerate(snap.entries, 1):
+            flag = {"live": "🔴 直播中", "upcoming": "⏳ 预告"}.get(e.live_state, "📺 投稿")
+            print(f"  [{i}] {flag}  {e.video_id}  {e.published_at or '(无时间信息)'}")
+            print(f"       {e.title[:56]}")
+        print()
+        if live:
+            print(f"✅ 检测到直播: {live.video_id} / {live.title[:40]}")
+        else:
+            print("ℹ️ 当前无直播（若该频道确实在直播，说明检测有问题）")
+        print("ℹ️ 注意：网页数据无精确时间戳，时间均为近似值")
+    return 0
+
+
 async def check_feed(channel_id: str, proxy: str) -> None:
     import aiohttp
 
     print()
     _line()
-    print("③ legacy Atom feed 体检（预期失败 —— 该端点已不可靠）")
+    print("④ legacy Atom feed 体检（预期失败 —— 该端点已不可靠）")
     _line()
     timeout = aiohttp.ClientTimeout(total=30, connect=10)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         client = LegacyFeedClient(session, proxy=proxy)
         result = await client.fetch_feed(channel_id, respect_throttle=False)
     if result is None:
-        print("✅ 确认不可用（符合预期，请使用 Data API）")
+        print("✅ 确认不可用（符合预期，请使用 Data API 或网页兜底）")
     else:
         print(f"⚠️ 意外可用：解析到 {len(result.entries)} 条 entry")
         print("   （该端点时好时坏，不建议作为主数据源）")
@@ -172,6 +224,8 @@ def main() -> int:
     ap.add_argument("--proxy", default="", help="代理, 如 http://127.0.0.1:7890")
     ap.add_argument("--max-results", type=int, default=5, help="拉取最近视频条数")
     ap.add_argument("--check-feed", action="store_true", help="顺带体检 legacy feed")
+    ap.add_argument("--check-page", action="store_true",
+                    help="体检网页 JSON 兜底数据源（不需要 API Key）")
     ap.add_argument("--file", default="", help="离线解析本地 feed XML")
     args = ap.parse_args()
 
@@ -181,14 +235,26 @@ def main() -> int:
     if not args.channel:
         ap.error("需要提供频道标识，或用 --file 离线解析")
 
+    # 只体检网页兜底：不需要 Key，直接跑
+    if args.check_page and not args.api_key:
+        return asyncio.run(
+            check_page(args.channel, args.proxy, args.max_results)
+        )
+
     if not args.api_key:
         print("❌ 未提供 API Key。")
         print("   申请（免费、无需 OAuth）：Google Cloud Console → 启用 YouTube Data API v3")
         print("   → 凭据 → 创建凭据 → API 密钥")
         print("   然后：python scripts/diagnose.py @handle --api-key AIza...")
+        print()
+        print("   提示：也可以先用 --check-page 体检网页 JSON 兜底（无需 Key）：")
+        print("         python scripts/diagnose.py @handle --check-page")
         return 1
 
     code = asyncio.run(run_api(args.channel, args.api_key, args.proxy, args.max_results))
+
+    if args.check_page and not args.file:
+        asyncio.run(check_page(args.channel, args.proxy, args.max_results))
 
     if args.check_feed and not args.file:
         # 体检需要频道 ID；从上面的解析结果拿不到就跳过
@@ -196,6 +262,9 @@ def main() -> int:
             kind, value = parse_channel_input(args.channel)
             if kind == "id":
                 asyncio.run(check_feed(value, args.proxy))
+            else:
+                print()
+                print("ℹ️ --check-feed 需要频道 ID 形式（UC...），已跳过")
         except Exception:  # noqa: BLE001
             pass
     return code

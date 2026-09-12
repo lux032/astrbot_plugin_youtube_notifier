@@ -21,6 +21,7 @@ from astrbot.api import logger
 
 from .data_api import parse_channel_input
 from .models import ChannelMeta
+from ..utils import BROWSER_HEADERS
 
 _CANONICAL_RE = re.compile(
     r'<link\s+rel="canonical"\s+href="https://www\.youtube\.com/channel/(UC[A-Za-z0-9_-]{22})"'
@@ -29,18 +30,39 @@ _EXTERNAL_ID_RE = re.compile(r'"externalId":"(UC[A-Za-z0-9_-]{22})"')
 _OG_TITLE_RE = re.compile(r'<meta\s+property="og:title"\s+content="([^"]*)"')
 _TITLE_RE = re.compile(r"<title>([^<]*)</title>")
 
-# 电脑版 UA —— 移动版页面结构不同
-_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-)
-
 
 def uploads_playlist_id_for(channel_id: str) -> str:
     """由频道 ID 推导上传播放列表 ID：UCxxxx → UUxxxx。"""
     if channel_id.startswith("UC") and len(channel_id) == 24:
         return "UU" + channel_id[2:]
     return ""
+
+
+def extract_channel_id_from_html(html: str) -> str:
+    """从任意 YouTube 页面 HTML 提取频道 ID（canonical 优先，externalId 兜底）。
+
+    两种信号都大量实测可用；canonical 更可靠（externalId 可能出现在
+    无关的推荐位数据里）。取不到返回空串。
+    """
+    match = _CANONICAL_RE.search(html) or _EXTERNAL_ID_RE.search(html)
+    return match.group(1) if match else ""
+
+
+def extract_channel_name_from_html(html: str) -> str:
+    """从页面 HTML 提取频道名（og:title 优先）。"""
+    return _extract_title(html)
+
+
+def channel_page_url(raw_input: str) -> str:
+    """把频道标识转成频道页 URL（无 API Key 时抓页面用）。"""
+    kind, value = parse_channel_input(raw_input)
+    if not value:
+        return ""
+    if kind == "id":
+        return f"https://www.youtube.com/channel/{value}"
+    if kind == "username":
+        return f"https://www.youtube.com/user/{value}"
+    return f"https://www.youtube.com/@{value}"
 
 
 async def resolve_channel_via_html(
@@ -51,12 +73,9 @@ async def resolve_channel_via_html(
     if not value:
         return None
 
-    if kind == "id":
-        url = f"https://www.youtube.com/channel/{value}"
-    elif kind == "username":
-        url = f"https://www.youtube.com/user/{value}"
-    else:
-        url = f"https://www.youtube.com/@{value}"
+    url = channel_page_url(raw_input)
+    if not url:
+        return None
 
     try:
         async with session.get(
@@ -64,7 +83,7 @@ async def resolve_channel_via_html(
             proxy=proxy or None,
             timeout=20,
             allow_redirects=True,
-            headers={"User-Agent": _UA, "Accept-Language": "en-US,en;q=0.9"},
+            headers=dict(BROWSER_HEADERS),
         ) as resp:
             if resp.status != 200:
                 logger.warning(f"[YT] 抓取频道页失败 {url}: HTTP {resp.status}")
@@ -74,17 +93,14 @@ async def resolve_channel_via_html(
         logger.warning(f"[YT] 抓取频道页异常 {url}: {exc!r}")
         return None
 
-    channel_id = ""
-    match = _CANONICAL_RE.search(html) or _EXTERNAL_ID_RE.search(html)
-    if match:
-        channel_id = match.group(1)
+    channel_id = extract_channel_id_from_html(html)
     if not channel_id:
         logger.warning(f"[YT] 无法从频道页提取 channel id: {url}")
         return None
 
     return ChannelMeta(
         channel_id=channel_id,
-        title=_extract_title(html),
+        title=extract_channel_name_from_html(html),
         handle=f"@{value}" if kind == "handle" else "",
         uploads_playlist_id=uploads_playlist_id_for(channel_id),
     )

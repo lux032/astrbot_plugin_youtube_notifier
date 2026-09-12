@@ -152,6 +152,7 @@ def test_import_all_modules() -> None:
         "astrbot_plugin_youtube_notifier.services.feed",
         "astrbot_plugin_youtube_notifier.services.livebroadcasts",
         "astrbot_plugin_youtube_notifier.services.scrape",
+        "astrbot_plugin_youtube_notifier.services.page_json",
         "astrbot_plugin_youtube_notifier.services.state_machine",
         "astrbot_plugin_youtube_notifier.services.notifier",
         "astrbot_plugin_youtube_notifier.services.poller",
@@ -170,7 +171,13 @@ def test_plugin_class_instantiable() -> None:
     plugin = YouTubeNotifierPlugin(context=object(), config={"basic": {}})
     assert hasattr(plugin, "initialize") and hasattr(plugin, "terminate")
     # 指令方法应存在
-    for cmd in ("subscribe", "unsubscribe", "list_subscriptions"):
+    for cmd in (
+        "subscribe",
+        "unsubscribe",
+        "list_subscriptions",
+        "live_test",
+        "video_test",
+    ):
         assert callable(getattr(plugin, cmd)), f"缺少指令方法 {cmd}"
     print("✅ test_plugin_class_instantiable")
 
@@ -212,7 +219,12 @@ def test_status_text_distinguishes_states() -> None:
 
 
 def test_monitoring_blocker() -> None:
-    """未配 Key 时必须能报出明确原因（而不是静默不工作）。"""
+    """未配 Key 时必须能报出明确原因（而不是静默不工作）。
+
+    锁定 _monitoring_blocker / _degraded_notice 的语义矩阵：
+    「能工作但降级」返回空阻塞串，同时**必须**给出降级提示 ——
+    两者都不给就是静默降级（CLAUDE.md 明令禁止）。
+    """
     from astrbot_plugin_youtube_notifier.main import YouTubeNotifierPlugin
 
     class _API:
@@ -220,30 +232,52 @@ def test_monitoring_blocker() -> None:
             self.configured = configured
 
     class _Notifier:
-        def __init__(self, mode):
+        def __init__(self, mode, page_fallback=True):
             self.live_detect_mode = mode
+            self.page_fallback_enabled = page_fallback
+
+    class _Page:
+        pass
 
     plugin = YouTubeNotifierPlugin(context=object(), config={"basic": {}})
 
-    # 未配置任何数据源 → 必须报阻塞原因
+    # ① 什么都没配：data_api 显式要官方 API，没 Key 且没兜底 → 必须报阻塞，
+    #    且阻塞文案要指出「网页兜底也关着」，让用户知道有两条路可修
     blocker = plugin._monitoring_blocker()
     assert "api_key" in blocker, blocker
+    assert "page_fallback_enabled" in blocker, blocker
     assert not plugin._monitoring_ready()
 
-    # 配好 Key + data_api → 就绪
+    # ② 配好 Key + data_api → 就绪且无降级提示
     plugin.data_api = _API(True)
     plugin.notifier = _Notifier("data_api")
     assert plugin._monitoring_blocker() == ""
     assert plugin._monitoring_ready()
+    assert plugin._degraded_notice() == ""
 
-    # livebroadcasts 模式还要求 OAuth
+    # ③ livebroadcasts 模式还要求 OAuth
     plugin.notifier = _Notifier("livebroadcasts")
     assert "OAuth" in plugin._monitoring_blocker()
 
-    # auto / feed 模式不算阻塞
+    # ④ auto / feed 语义是「尽力而为」，永不阻塞
     plugin.data_api = _API(False)
-    plugin.notifier = _Notifier("auto")
+    plugin.notifier = _Notifier("auto", page_fallback=False)
     assert plugin._monitoring_ready()
+    # 但降级提示必须点明会掉到不可靠的 legacy feed
+    assert "legacy" in plugin._degraded_notice(), plugin._degraded_notice()
+
+    # ⑤ 没 Key 但网页兜底可用：不算阻塞，且提示走网页兜底
+    plugin.notifier = _Notifier("data_api", page_fallback=True)
+    plugin.page_json = _Page()
+    assert plugin._monitoring_ready()
+    notice = plugin._degraded_notice()
+    assert "网页" in notice and "api_key" in notice, notice
+
+    # ⑥ feed 模式：不阻塞，但必须说明 feed 不可靠
+    plugin.notifier = _Notifier("feed")
+    assert plugin._monitoring_ready()
+    assert "不可靠" in plugin._degraded_notice()
+
     print("✅ test_monitoring_blocker")
 
 
@@ -294,8 +328,14 @@ def test_required_files_present() -> None:
         "renderer.py",
         "utils.py",
         "scripts/oauth_setup.py",
+        "scripts/diagnose.py",
         "services/store.py",
         "services/websub_server.py",
+        "services/page_json.py",
+        # 真实数据 fixture：网页 JSON 降级链的回归基准
+        "tests/fixtures/real_channel_streams_live.json",
+        "tests/fixtures/real_channel_videos_normal.json",
+        "tests/fixtures/real_feed_youtube.xml",
     ):
         assert (PLUGIN_ROOT / rel).exists(), f"缺少文件 {rel}"
     print("✅ test_required_files_present")

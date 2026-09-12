@@ -1,0 +1,420 @@
+{
+ "responseContext": {
+  "visitorData": "fixture"
+ },
+ "contents": {
+  "twoColumnBrowseResultsRenderer": {
+   "tabs": [
+    {
+     "tabRenderer": {
+      "title": "streams",
+      "selected": true,
+      "content": {
+       "richGridRenderer": {
+        "contents": [
+         {
+          "richItemRenderer": {
+           "content": {
+            "lockupViewModel": {
+             "contentId": "aujP8wuMTMI",
+             "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+             "metadata": {
+              "lockupMetadataViewModel": {
+               "title": {
+                "content": "NASA’s SpaceX Crew-12 Pre-Departure News Conference (Sept. 16, 2026)"
+               },
+               "metadata": {
+                "contentMetadataViewModel": {
+                 "metadataRows": [
+                  {
+                   "metadataParts": [
+                    {
+                     "text": {
+                      "content": "1 waiting"
+                     }
+                    },
+                    {
+                     "text": {
+                      "content": "Scheduled for 9/16/26, 11:45 AM"
+                     }
+                    }
+                   ]
+                  }
+                 ]
+                }
+               }
+              }
+             },
+             "contentImage": {
+              "thumbnailViewModel": {
+               "image": {
+                "sources": [
+                 {
+                  "url": "https://i.ytimg.com/vi/aujP8wuMTMI/hq720.jpg?sqp=-oaymwEgCOgCEMoBSFXyq4qpAxIIARUAAIhCGAFwAcABBrgC8xg=&rs=AOn4CLDWCdHR7fCmwL4L02HY1vCdVskg_A",
+                  "width": 360
+                 },
+                 {
+                  "url": "https://i.ytimg.com/vi/aujP8wuMTMI/hq720.jpg?sqp=-oaymwEgCNAFEJQDSFXyq4qpAxIIARUAAIhCGAFwAcABBrgC8xg=&rs=AOn4CLBmQJrwcYkx-qDg2teBF1yH6yqUQw",
+                  "width": 720
+                 }
+                ]
+               },
+               "overlays": [
+                {
+                 "thumbnailBottomOverlayViewModel": {
+                  "badges": [
+                   {
+                    "thumbnailBadgeViewModel": {
+                     "text": "Upcoming",
+                     "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT"
+                    }
+                   }
+                  ]
+                 }
+                }
+               ]
+              }
+             }
+            }
+           }
+          }
+         },
+         {
+          "richItemRenderer": {
+           "content": {
+            "lockupViewModel": {
+             "contentId": "M3HKLzjvKPc",
+             "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+             "metadata": {
+              "lockupMetadataViewModel": {
+               "title": {
+                "content": "Live Video from the International Space Station (Official NASA Stream)"
+               },
+               "metadata": {
+                "contentMetadataViewModel": {
+                 "metadataRows": [
+                  {
+                   "metadataParts": [
+                    {
+                     "text": {
+                      "content": "82 watching"
+                     }
+                    }
+                   ]
+                  }
+                 ]
+                }
+               }
+              }
+             },
+             "contentImage": {
+              "thumbnailViewModel": {
+               "image": {
+                "sources": [
+                 {
+                  "url": "https://i.ytimg.com/vi/M3HKLzjvKPc/hq720.jpg?v=6a6b4e0d&sqp=-oaymwEgCOgCEMoBSFXyq4qpAxIIARUAAIhCGAFwAcABBrgC8xg=&rs=AOn4CLC9YUofGsWr9QxAiCke5lHVjEr5Sg",
+                  "width": 360
+                 },
+                 {
+                  "url": "https://i.ytimg.com/vi/M3HKLzjvKPc/hq720.jpg?v=6a6b4e0d&sqp=-oaymwEgCNAFEJQDSFXyq4qpAxIIARUAAIhCGAFwAcABBrgC8xg=&rs=AOn4CLBkmgH6UQKKXD3gV8cG3gy0EAsyGw",
+                  "width": 720
+                 }
+                ]
+               },
+               "overlays": [
+                {
+                 "thumbnailBottomOverlayViewModel": {
+                  "badges": [
+                   {
+                    "thumbnailBadgeViewModel": {
+                     "text": "LIVE",
+                     "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE"
+                    }
+                   }
+                  ]
+                 }
+                }
+               ]
+              }
+             }
+            }
+           }
+          }
+         },
+         {
+          "richItemRenderer": {
+           "content": {
+            "lockupViewModel": {
+             "contentId": "awQzjn72bI0",
+             "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+             "metadata": {
+              "lockupMetadataViewModel": {
+               "title": {
+                "content": "Live High-Definition Views from the International Space Station (Official NASA Stream)"
+               },
+               "metadata": {
+                "contentMetadataViewModel": {
+                 "metadataRows": [
+                  {
+                   "metadataParts": [
+                    {
+                     "text": {
+                      "content": "101 watching"
+                     }
+                    }
+                   ]
+                  }
+                 ]
+                }
+               }
+              }
+             },
+             "contentImage": {
+              "thumbnailViewModel": {
+               "image": {
+                "sources": [
+                 {
+                  "url": "https://i.ytimg.com/vi/awQzjn72bI0/hq720.jpg?v=6a43c074&sqp=-oaymwEgCOgCEMoBSFXyq4qpAxIIARUAAIhCGAFwAcABBrgC8xg=&rs=AOn4CLBVKZmZg0LdTnSDh50UUhEpj7g5ow",
+                  "width": 360
+                 },
+                 {
+                  "url": "https://i.ytimg.com/vi/awQzjn72bI0/hq720.jpg?v=6a43c074&sqp=-oaymwEgCNAFEJQDSFXyq4qpAxIIARUAAIhCGAFwAcABBrgC8xg=&rs=AOn4CLB_kJXTXw8ltrZonINCsuB846c7mg",
+                  "width": 720
+                 }
+                ]
+               },
+               "overlays": [
+                {
+                 "thumbnailBottomOverlayViewModel": {
+                  "badges": [
+                   {
+                    "thumbnailBadgeViewModel": {
+                     "text": "LIVE",
+                     "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE"
+                    }
+                   }
+                  ]
+                 }
+                }
+               ]
+              }
+             }
+            }
+           }
+          }
+         },
+         {
+          "richItemRenderer": {
+           "content": {
+            "lockupViewModel": {
+             "contentId": "-HQOp1-LpU0",
+             "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+             "metadata": {
+              "lockupMetadataViewModel": {
+               "title": {
+                "content": "U.S. Spacewalk 99"
+               },
+               "metadata": {
+                "contentMetadataViewModel": {
+                 "metadataRows": [
+                  {
+                   "metadataParts": [
+                    {
+                     "text": {
+                      "content": "340K"
+                     }
+                    },
+                    {
+                     "text": {
+                      "content": "Streamed 10d ago"
+                     }
+                    }
+                   ]
+                  }
+                 ]
+                }
+               }
+              }
+             },
+             "contentImage": {
+              "thumbnailViewModel": {
+               "image": {
+                "sources": [
+                 {
+                  "url": "https://i.ytimg.com/vi/-HQOp1-LpU0/hq720.jpg?sqp=-oaymwEgCOgCEMoBSFXyq4qpAxIIARUAAIhCGAFwAcABBrgC8xg=&rs=AOn4CLDELlyu8Jky4z4RM09RQHYPCjk6-w",
+                  "width": 360
+                 },
+                 {
+                  "url": "https://i.ytimg.com/vi/-HQOp1-LpU0/hq720.jpg?sqp=-oaymwEgCNAFEJQDSFXyq4qpAxIIARUAAIhCGAFwAcABBrgC8xg=&rs=AOn4CLASwe2jt4wJRWnx-QQjYlSZ-CRb2Q",
+                  "width": 720
+                 }
+                ]
+               },
+               "overlays": [
+                {
+                 "thumbnailBottomOverlayViewModel": {
+                  "badges": [
+                   {
+                    "thumbnailBadgeViewModel": {
+                     "text": "9:05:30",
+                     "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT"
+                    }
+                   }
+                  ]
+                 }
+                }
+               ]
+              }
+             }
+            }
+           }
+          }
+         },
+         {
+          "richItemRenderer": {
+           "content": {
+            "lockupViewModel": {
+             "contentId": "dnAJJwgpHs4",
+             "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+             "metadata": {
+              "lockupMetadataViewModel": {
+               "title": {
+                "content": "Nancy Grace Roman Space Telescope Postlaunch News Conference"
+               },
+               "metadata": {
+                "contentMetadataViewModel": {
+                 "metadataRows": [
+                  {
+                   "metadataParts": [
+                    {
+                     "text": {
+                      "content": "199K"
+                     }
+                    },
+                    {
+                     "text": {
+                      "content": "Streamed 12d ago"
+                     }
+                    }
+                   ]
+                  }
+                 ]
+                }
+               }
+              }
+             },
+             "contentImage": {
+              "thumbnailViewModel": {
+               "image": {
+                "sources": [
+                 {
+                  "url": "https://i.ytimg.com/vi/dnAJJwgpHs4/hq720.jpg?sqp=-oaymwEgCOgCEMoBSFXyq4qpAxIIARUAAIhCGAFwAcABBrgC8xg=&rs=AOn4CLD8tVgsASdqoEZ9l93WKOCiRlvQAg",
+                  "width": 360
+                 },
+                 {
+                  "url": "https://i.ytimg.com/vi/dnAJJwgpHs4/hq720.jpg?sqp=-oaymwEgCNAFEJQDSFXyq4qpAxIIARUAAIhCGAFwAcABBrgC8xg=&rs=AOn4CLCFsHT2RI8QLZsWv_oWeiY6CrrFzA",
+                  "width": 720
+                 }
+                ]
+               },
+               "overlays": [
+                {
+                 "thumbnailBottomOverlayViewModel": {
+                  "badges": [
+                   {
+                    "thumbnailBadgeViewModel": {
+                     "text": "56:55",
+                     "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT"
+                    }
+                   }
+                  ]
+                 }
+                }
+               ]
+              }
+             }
+            }
+           }
+          }
+         },
+         {
+          "richItemRenderer": {
+           "content": {
+            "lockupViewModel": {
+             "contentId": "9wq3VHsL_bE",
+             "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+             "metadata": {
+              "lockupMetadataViewModel": {
+               "title": {
+                "content": "Nancy Grace Roman Space Telescope Launch"
+               },
+               "metadata": {
+                "contentMetadataViewModel": {
+                 "metadataRows": [
+                  {
+                   "metadataParts": [
+                    {
+                     "text": {
+                      "content": "1.3M"
+                     }
+                    },
+                    {
+                     "text": {
+                      "content": "Streamed 12d ago"
+                     }
+                    }
+                   ]
+                  }
+                 ]
+                }
+               }
+              }
+             },
+             "contentImage": {
+              "thumbnailViewModel": {
+               "image": {
+                "sources": [
+                 {
+                  "url": "https://i.ytimg.com/vi/9wq3VHsL_bE/hq720.jpg?sqp=-oaymwEgCOgCEMoBSFXyq4qpAxIIARUAAIhCGAFwAcABBrgC8xg=&rs=AOn4CLAQJGVoPjFER3fMNbSMVtD4QiH6pQ",
+                  "width": 360
+                 },
+                 {
+                  "url": "https://i.ytimg.com/vi/9wq3VHsL_bE/hq720.jpg?sqp=-oaymwEgCNAFEJQDSFXyq4qpAxIIARUAAIhCGAFwAcABBrgC8xg=&rs=AOn4CLDpXFiAC-Ba8cFlt3nPYepfpajBWA",
+                  "width": 720
+                 }
+                ]
+               },
+               "overlays": [
+                {
+                 "thumbnailBottomOverlayViewModel": {
+                  "badges": [
+                   {
+                    "thumbnailBadgeViewModel": {
+                     "text": "1:50:39",
+                     "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT"
+                    }
+                   }
+                  ]
+                 }
+                }
+               ]
+              }
+             }
+            }
+           }
+          }
+         }
+        ]
+       }
+      }
+     }
+    }
+   ]
+  }
+ },
+ "metadata": {
+  "microformatDataRenderer": {
+   "urlCanonical": "https://www.youtube.com/channel/UCLA_DiR1FfKNvjuUpBHmylQ"
+  }
+ }
+}

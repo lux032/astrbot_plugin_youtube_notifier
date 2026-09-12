@@ -46,6 +46,7 @@ services/
   models.py              # ChannelState / FeedEntry / LiveInfo / Notification / ChannelMeta
   data_api.py            # ★ 主数据源（API Key）+ handle 解析 + 配额计数
   feed.py                # legacy Atom feed（降级）
+  page_json.py           # 网页 JSON 兜底（降级链首选）
   livebroadcasts.py      # LiveBroadcasts API（OAuth，仅自己的频道）
   scrape.py              # 无 Key 时抓频道页兜底
   oauth.py               # OAuth token 管理 + device flow
@@ -55,7 +56,7 @@ services/
   poller.py              # asyncio 后台轮询
   websub.py / websub_server.py   # WebSub（默认关闭）
 renderer.py / utils.py
-tests/                   # 4 个离线测试文件 + 真实 feed fixture
+tests/                   # 5 个离线测试文件 + 真实 feed / 网页 JSON fixture
 scripts/diagnose.py / scripts/oauth_setup.py
 ```
 
@@ -99,34 +100,45 @@ scripts/diagnose.py / scripts/oauth_setup.py
 7. ✅ main.py 指令装配（支持 `@handle` / URL / ID）
 8. ✅ scrape（无 Key 兜底）+ livebroadcasts（OAuth 可选）
 9. ✅ 诊断脚本 + 测试 + 文档
+10. ✅ **网页 JSON 兜底**（`page_json.py`）：配额耗尽/请求失败/无 Key 时自动降级
+11. ✅ **测试指令** `/yt直播测试` `/yt视频测试`（走完整抓取→渲染→推送链路）
+12. ✅ 修复：语义性错误（Key 无效/配额耗尽）不再进重试循环（原先白等约 16s/次）
 
 ## 验证状态
 
 | 项 | 状态 |
 |---|---|
-| 包导入冒烟（15 模块，含 main.py） | ✅ 5/5 |
-| 配置 schema（5 分块 18 项）+ metadata | ✅ |
+| 包导入冒烟（16 模块，含 main.py） | ✅ 7/7 |
+| 配置 schema（5 分块 20 项）+ metadata | ✅ |
 | 状态机（静默接入/去重/换流/时长/VOD 防重/主播型频道） | ✅ 20/20 |
 | 会话隔离 + 持久化 + 损坏容错 | ✅ 6/6 |
 | Data API 输入解析/响应映射/快照组装（mock） | ✅ 8/8 |
+| 网页 JSON 解析 + 降级链（真实页面 fixture） | ✅ 18/18 |
 | **Data API 真实 Key：@handle 解析** | ✅ **实测** `@ukaisaki` → `UCNydvA0D7GSuT0c9Zs-zWdw` |
 | **Data API 真实 Key：快照 + 直播状态映射** | ✅ **实测** completed 直播起止时间正确 |
 | **直播流出现在上传播放列表（最关键的地基假设）** | ✅ **实测确认** 正在直播的频道首条即 `liveBroadcastContent=live`，`find_live()` 命中 |
 | 真实 feed 回归（15 条真实数据 + 根元素无 UC 前缀的坑） | ✅ 实测抓取 |
 | `@handle` 网页抓取兜底 | ✅ 对真实 YouTube 实测通过 |
 | feed 端点不可用性 | ✅ 实测确认为间歇性失败 |
-| 三种通知图渲染（emoji + 封面） | ✅ 人工目检 |
-| AstrBot 内端到端 | ⏳ **唯一剩下的主要项** |
+| **网页 JSON：直播检测（LIVE 角标）** | ✅ **实测** @NASA/@SkyNews/@AlJazeera 等命中，2 条直播 |
+| **网页 JSON：/videos + /streams 合并快照** | ✅ **实测** 8 条（含直播），时间倒序正确 |
+| **网页 JSON：观看页解析（测试命令用）** | ✅ **实测** 直播/普通视频均正确识别 |
+| **降级链：无效 Key 自动改走网页兜底** | ✅ **实测** 订阅回复与 `/yt列表` 均明示降级 |
+| **`/yt直播测试` `/yt视频测试` 六个用例** | ✅ **实测** 均渲染并推送真实图片（含「🧪 测试」标记） |
+| 三种通知图渲染（emoji + 封面） | ✅ 人工目检（含测试标记版） |
+| AstrBot 内端到端 | ⏳ **唯一剩下的主要项**（测试指令可在真实 bot 里直接验它） |
 | WebSub 真实握手 | ⏳ 端点不可靠，默认关闭 |
 
 ## 测试
 
 ```bash
-python tests/test_imports.py        # 导入冒烟 + schema + metadata
+python tests/test_imports.py        # 导入冒烟 + schema + metadata + 就绪语义
 python tests/test_state_machine.py  # 状态机 + feed 解析（真实 fixture）
 python tests/test_store.py          # 会话隔离 + 持久化
 python tests/test_data_api.py       # Data API（mock HTTP）
+python tests/test_page_json.py      # 网页 JSON 解析 + 降级链（真实页面 fixture）
 python scripts/diagnose.py @handle --api-key AIza...   # 真实环境诊断
+python scripts/diagnose.py @handle --check-page         # 只体检网页兜底（无需 Key）
 ```
 
 全部离线，不依赖 AstrBot 运行时与网络。

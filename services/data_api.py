@@ -65,6 +65,15 @@ class InvalidApiKeyError(Exception):
     """API Key 无效。"""
 
 
+# 语义性错误（调用方问题，重试不会变好）—— 命中即刻抛出，不做退避重试
+_SEMANTIC_ERRORS = (
+    ApiKeyMissingError,
+    QuotaExceededError,
+    ChannelNotFoundError,
+    InvalidApiKeyError,
+)
+
+
 # ---------------------------------------------------------------- 输入解析
 
 
@@ -158,17 +167,16 @@ class YouTubeDataAPI:
                     if resp.status == 200:
                         return body
                     raise self._map_error(resp.status, body)
-            except (
-                ApiKeyMissingError,
-                QuotaExceededError,
-                ChannelNotFoundError,
-                InvalidApiKeyError,
-            ):
+            except _SEMANTIC_ERRORS:
                 raise
             except Exception as exc:  # noqa: BLE001 - 交给 retry
                 raise RuntimeError(f"{label} 请求失败: {exc!r}") from exc
 
-        return await retry_async(_do, logger=logger, label=label)
+        # 语义性错误（Key 无效 / 配额耗尽 / 频道不存在）重试没有意义：
+        # 重试只会白等十几秒才走到降级逻辑。只有网络错误与 5xx 才该重试。
+        return await retry_async(
+            _do, logger=logger, label=label, non_retryable=_SEMANTIC_ERRORS
+        )
 
     @staticmethod
     def _map_error(status: int, body: dict) -> Exception:

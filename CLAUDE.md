@@ -11,9 +11,22 @@ AstrBot v4.28.0 插件：订阅 YouTube 频道（**支持 `@handle`**），直�
 | 数据源 | 鉴权 | 角色 | 可靠性 |
 |---|---|---|---|
 | **YouTube Data API v3** | **API Key** | **主数据源** | ✅ 官方 |
-| 网页抓取（频道页 HTML） | 无 | 无 Key 时解析 `@handle` | ⚠️ 脆弱 |
+| **网页 JSON**（频道页 `ytInitialData`） | 无 | **降级链首选** + 无 Key 时监控 | ⚠️ 可用但脆弱，见下 |
+| 网页抓取（频道页 HTML 正则） | 无 | 只用来解析 `@handle` | ⚠️ 脆弱 |
 | `liveBroadcasts` API | OAuth 2.0 | 可选，仅自己的频道 | ✅ 能力受限 |
-| Atom feed | 无 | **legacy 兜底** | ❌ 见下 |
+| Atom feed | 无 | **最后兜底** | ❌ 见下 |
+
+### 降级链（`page_fallback_enabled=true` 时）
+
+```
+Data API 配额耗尽 / 请求失败 / API Key 无效 / 未配置 Key
+    → 网页 JSON（services/page_json.py）⭐ 实测可用
+    → legacy Atom feed（仅当网页也失败；端点已大面积 404）
+```
+
+降级**必须留痕**：日志 + 通知服务的 `degraded_reason()` → `/yt列表` 展示
+⚠️ 数据源已降级 + `/yt订阅` 回复提示。`live_detect_mode=feed` 是用户显式选择，
+不参与降级链。
 
 ### ⚠️ 为什么不用 Atom feed（关键背景）
 
@@ -35,8 +48,8 @@ AstrBot v4.28.0 插件：订阅 YouTube 频道（**支持 `@handle`**），直�
 
 - `data_api`（默认）：Data API，任意频道，仅需 API Key
 - `livebroadcasts`：OAuth 查直播 + Data API 查投稿，仅自己的频道
-- `feed`：legacy Atom feed（⚠️ 不可靠）
-- `auto`：优先 data_api，无 Key 时回退 feed
+- `feed`：legacy Atom feed（⚠️ 不可靠；显式选择，不参与降级）
+- `auto`：优先 data_api，无 Key 时回退网页 JSON
 
 ## 目录结构
 
@@ -47,19 +60,20 @@ CLAUDE.md / PLAN.md / API_GUIDE.md / README.md
 services/
   models.py                # ChannelState / FeedEntry / LiveInfo / Notification / ChannelMeta
   data_api.py              # ★ 主数据源：Data API v3（API Key）+ handle 解析 + 配额计数
-  feed.py                  # legacy Atom feed（降级，勿依赖）
+  page_json.py             # ★ 网页 JSON 兜底：ytInitialData 抓取与解析
+  feed.py                  # legacy Atom feed（最后兜底，勿依赖）
   livebroadcasts.py        # LiveBroadcasts API（OAuth，仅自己的频道）
-  scrape.py                # 无 Key 时的频道页抓取兜底
+  scrape.py                # 频道页 HTML 正则（handle 解析兜底）
   oauth.py                 # OAuth token 管理与 device flow
   store.py                 # 订阅存储 + 会话隔离 + JSON 持久化
   state_machine.py         # 直播状态机（纯逻辑，可单测）
-  notifier.py              # 检测 → 渲染 → 推送所有订阅会话
+  notifier.py              # 检测 → 渲染 → 推送所有订阅会话 + 降级链
   poller.py                # asyncio 后台轮询（默认 300s）
   websub.py / websub_server.py  # WebSub（默认关闭，见下）
-renderer.py                # PIL 文生图通知（三模板）
-utils.py                   # 重试退避 / 时间 / 字体 / emoji / 换行
-tests/                     # 离线单测 + 真实 feed fixture
-scripts/diagnose.py        # 数据源诊断
+renderer.py                # PIL 文生图通知（三模板 + 测试标记）
+utils.py                   # 重试退避 / 时间 / 字体 / emoji / 换行 / BROWSER_HEADERS
+tests/                     # 离线单测 + 真实 feed / 网页 JSON fixture
+scripts/diagnose.py        # 数据源诊断（含 --check-page 网页兜底体检）
 scripts/oauth_setup.py     # OAuth 交互式授权
 ```
 
@@ -107,6 +121,39 @@ class ChannelState:
 1. `find_new_videos` 过滤掉 `live_state` 非空的条目（completed 也算直播）；
 2. `recent_live_ids` 再挡一次（有界 10 条）。
 
+## 网页 JSON 数据源（services/page_json.py，2026-09-12 实测）
+
+**必须知道的限制**（全部实测确认）：
+
+1. **直播只能从 `/streams` 标签页拿到**：`/videos` 页直播数为 **0**
+   （@NASA、@SkyNews 均如此）→ 每次快照要抓 **2 个页面**，各约 1.2MB。
+2. **`/streams` 页只可用于判断直播**：实测 MrBeast 的 `/streams` 里列出的
+   全是他的**普通投稿**（首播视频被 YouTube 归入 streams），24 条中有 12 条
+   与 `/videos` 完全重合。所以该页非直播条目**既不是「往期直播存档」、
+   也不能当普通投稿** → 一律丢弃，只取 live/upcoming。
+   ⚠️ 曾把非直播条目标成 `completed`，会让 `find_new_videos` 把这些真实投稿
+   **永久跳过**（`was_live` → 过滤掉）→ 静默漏推。**别改回去。**
+3. **没有 ISO 时间戳**：只有相对时间（"6 days ago"）或日期（"Sep 5, 2026"），
+   换算成**近似** ISO 仅用于排序/展示。月份用自带映射表解析，
+   **不要用 `strptime("%b")`** —— 中文 Windows 上会因 locale 解析失败。
+4. **直播没有 actualStartTime**：`/streams` 只给 "N watching" /
+   "Started streaming 2 hours ago" → 直播时长不准确（状态机用 now 兜底）。
+5. **条目结构已迁移**：列表项从旧的 `videoRenderer` 变成了
+   `lockupViewModel`（实测）。直播信号是缩略图角标
+   `badgeStyle == "THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE"`。
+6. **观看页的 `ytInitialPlayerResponse` 不可用**：自动请求返回
+   `playabilityStatus: LOGIN_REQUIRED`（"Sign in to confirm you're not a bot"），
+   **不含 videoDetails**。观看页信息一律从 `ytInitialData`
+   （`videoPrimaryInfoRenderer` / `playerOverlayVideoDetailsRenderer`）取。
+7. **JSON 提取要用花括号配对**，不要用 `\{(.*?)\};</script>` 正则 ——
+   实测 @spacex 页面的结尾写法不匹配该正则，会整页解析失败。
+8. **频道 ID 从页面取**：`<link rel="canonical">` 优先，`"externalId"` 兜底。
+   `channelMetadataRenderer` **不可靠**（实测部分页面根本没有该节点）。
+9. **节流按用途区分**：轮询走 60s 节流，冷却期内**复用缓存**（不是返回 None，
+   否则会被当成抓取失败而触发多余的 feed 回退）；交互式命令（订阅解析、
+   `/yt*测试`）用 `respect_throttle=False` 绕过 —— 否则连跑两次同一频道
+   会因冷却解析不到，被误报成「未找到频道」。
+
 ## 已实测的真实世界坑（勿重蹈）
 
 1. **feed 根元素的 `<yt:channelId>` 不含 `UC` 前缀**
@@ -151,14 +198,28 @@ class ChannelState:
 ## 测试
 
 ```bash
-python tests/test_imports.py        # 包导入冒烟(15模块) + config schema + metadata
+python tests/test_imports.py        # 包导入冒烟(16模块) + config schema + metadata + 就绪语义矩阵
 python tests/test_state_machine.py  # 状态机 + feed 解析（含真实 feed fixture）
 python tests/test_store.py          # 会话隔离 + 持久化 + 损坏容错
 python tests/test_data_api.py       # Data API 输入解析/响应映射/快照组装（mock HTTP）
+python tests/test_page_json.py      # 网页 JSON 解析 + 降级链（含真实页面 fixture）
 ```
 
 测试用 `sys.modules` 注入最简 astrbot 桩，**不依赖 AstrBot 运行时与网络**。
-`tests/fixtures/real_feed_youtube.xml` 是 2026-09 抓取的真实 feed（15 条），用于回归。
+真实数据 fixture（回归用）：
+
+| fixture | 内容 |
+|---|---|
+| `tests/fixtures/real_feed_youtube.xml` | 2026-09 抓取的真实 Atom feed（15 条） |
+| `tests/fixtures/real_channel_streams_live.json` | 2026-09-12 @NASA `/streams` 的 ytInitialData（含 2 条直播 + 1 条预告） |
+| `tests/fixtures/real_channel_videos_normal.json` | 2026-09-12 @MrBeast `/videos` 的 ytInitialData（6 条普通投稿） |
+
+⚠️ 两个网页 fixture 是**白名单裁剪版**：只保留解析器实际读取的字段
+（条目 id/标题/元信息行/缩略图/角标 + 频道 canonical）。真实页面的
+`ytInitialData` 里还有大量与解析无关的东西（`googlevideo` 预览流 URL、
+`clickTrackingParams` 等跟踪参数），那些**不要**加回来 —— 既是噪音，
+也会让仓库体积涨约 28 倍。重建裁剪版见 CLAUDE.md「网页 JSON 数据源」一节。
+
 Windows GBK 控制台需 `sys.stdout.reconfigure(encoding="utf-8")` 才能打印 emoji。
 
 ## 设计原则：不允许「静默降级」
@@ -177,6 +238,17 @@ Windows GBK 控制台需 `sys.stdout.reconfigure(encoding="utf-8")` 才能打印
 4. **降级路径要留痕**：抓页面兜底得到的频道名可能与官方不同语言
    （实测 `Rurudo Lion` vs `るるどらいおん`），用 `name_from_api` 标记，
    拿到 Key 后触发一次更正。
+5. **「能工作但降级」也必须明说**：`_monitoring_blocker()` 返回空串 ≠ 一切正常。
+   只要实际走的是降级链路，`_degraded_notice()` 必须有话说，
+   且要出现在 `/yt订阅` 回复与 `/yt列表` 里。运行期降级按频道记在
+   `notifier.degraded_reason(channel_id)`。
+6. **就绪语义矩阵**（`test_monitoring_blocker` 锁定，改动前先看测试）：
+   `livebroadcasts` 缺 Key/OAuth → 阻塞；`data_api` 没 Key 且网页兜底关闭 →
+   阻塞；`auto` / `feed` → 永不阻塞（语义就是尽力而为）；其余情形 → 不阻塞
+   但给降级提示。
+7. **宁可少推也不能多推是错的**：判不准的内容宁可交给 `recent_live_ids`
+   那道防线，也不要「一律当存档」—— 后者会永久静默漏推真实投稿
+   （见网页 JSON 坑 #2）。
 
 ## 已实测验证的关键假设（2026-09-12，真实 API Key）
 
@@ -192,6 +264,13 @@ Windows GBK 控制台需 `sys.stdout.reconfigure(encoding="utf-8")` 才能打印
 
 ## 待验证（诚实记录）
 
-- **AstrBot 内端到端**（`/yt订阅` → 收到图片通知）尚未在真实 bot 里跑过 —— 这是唯一剩下的主要验证项
+- **AstrBot 内端到端**（`/yt订阅` → 收到图片通知）尚未在真实 bot 里跑过 ——
+  唯一剩下的主要验证项。`/yt直播测试` `/yt视频测试` 正是为缩小这个缺口加的：
+  它们走完整「抓取 → 渲染 → 推送」链路，可在真实 bot 里直接验证。
 - WebSub 与真实 hub 的握手未验证（且端点已不可靠，默认关闭）
 - feed 场景的**直播**信号未取得真实样本（feed 已降级，影响有限）
+- 网页 JSON 的**预告/首播角标**（`_BADGE_UPCOMING`）未取得真实样本，
+  仅按实测的同族命名防御性保留；实际预告识别目前靠
+  `/streams` 页条目 + "Scheduled"/"Premieres" 文案兜底（已实测命中 @NASA 的预告）
+- 网页 JSON 的**中文页面**分支（`parse_relative_time_to_iso` 里的 `6天前`）
+  未取得真实样本：请求固定发 `Accept-Language: en-US`，该分支属防御性代码

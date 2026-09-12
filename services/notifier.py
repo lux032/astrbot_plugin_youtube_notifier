@@ -4,7 +4,14 @@
   data_api      默认。官方 Data API v3（仅需 API Key），稳定，支持 @handle。
   livebroadcasts  LiveBroadcasts API（OAuth）查直播 + Data API 查投稿；仅自己的频道。
   feed           legacy Atom feed（⚠️ 端点已不可靠，见 services/feed.py）。
-  auto           优先 data_api，未配置 Key 或失败时回退 feed。
+  auto           优先 data_api，未配置 Key 或失败时回退网页 JSON / feed。
+
+降级链（page_fallback_enabled=true 时生效）：
+  Data API 配额耗尽 / 请求失败 / 未配置 Key
+      → 网页 JSON（services/page_json.py，实测可用）⭐
+      → legacy Atom feed（仅在网页也失败时，端点已大面积 404）
+
+降级不是静默的：每次降级都打日志，并记在 `degraded_reason()` 里供 /yt列表 展示。
 """
 
 from __future__ import annotations
@@ -33,6 +40,7 @@ from .models import (
     TYPE_LIVE_START,
     TYPE_NEW_VIDEO,
 )
+from .page_json import ChannelPageClient
 from .state_machine import find_new_videos, process_live
 from ..utils import utc_now_iso
 
@@ -53,7 +61,9 @@ class NotificationService:
         data_api: Optional[YouTubeDataAPI] = None,
         legacy_feed: Optional[LegacyFeedClient] = None,
         live_broadcasts: Optional[LiveBroadcastsClient] = None,
+        page_json: Optional[ChannelPageClient] = None,
         live_detect_mode: str = "data_api",
+        page_fallback_enabled: bool = True,
         cover_download: bool = True,
         max_results: int = 5,
         image_dir: Path = Path("data/images"),
@@ -65,7 +75,9 @@ class NotificationService:
         self.data_api = data_api
         self.legacy_feed = legacy_feed
         self.live_broadcasts = live_broadcasts
+        self.page_json = page_json
         self.live_detect_mode = live_detect_mode
+        self.page_fallback_enabled = bool(page_fallback_enabled)
         self.cover_download = cover_download
         self.max_results = max(1, min(50, int(max_results)))
         self.image_dir = Path(image_dir)
@@ -74,11 +86,40 @@ class NotificationService:
             self._enabled.update(enabled)
         self._channel_locks: dict[str, asyncio.Lock] = {}
         self._api_key_warned = False
+        # 降级原因（channel_id → 原因），供 /yt列表 与订阅回复展示
+        self._degraded: dict[str, str] = {}
         if not (data_api and data_api.configured):
-            logger.warning(
-                "[YT] 未配置 YouTube Data API Key —— 将退化为不稳定的 legacy feed 数据源，"
-                "强烈建议在配置中填写 api_key"
-            )
+            if self.page_fallback_enabled and page_json is not None:
+                logger.warning(
+                    "[YT] 未配置 YouTube Data API Key —— 监控将走网页 JSON 兜底"
+                    "（可用但比官方 API 脆弱、无精确时间戳）。建议填写 api_key"
+                )
+            else:
+                logger.warning(
+                    "[YT] 未配置 YouTube Data API Key —— 将退化为不稳定的 legacy feed "
+                    "数据源，强烈建议在配置中填写 api_key"
+                )
+
+    # ------------------------------------------------------------ 降级痕迹
+
+    def degraded_reason(self, channel_id: str) -> str:
+        """该频道当前是否在用降级数据源；正常返回空串。
+
+        降级必须留痕（见 CLAUDE.md「不允许静默降级」）：用户要能知道
+        现在看到的推送来自哪条链路。
+        """
+        return self._degraded.get(str(channel_id), "")
+
+    def _mark_degraded(self, channel_id: str, reason: str) -> None:
+        cid = str(channel_id)
+        if self._degraded.get(cid) != reason:
+            logger.info(f"[YT] channel={cid} 降级为网页数据源: {reason}")
+        self._degraded[cid] = reason
+
+    def _clear_degraded(self, channel_id: str) -> None:
+        cid = str(channel_id)
+        if self._degraded.pop(cid, None) is not None:
+            logger.info(f"[YT] channel={cid} 已恢复使用 Data API")
 
     # ------------------------------------------------------------ 主入口
 
@@ -117,26 +158,31 @@ class NotificationService:
         use_api = self.live_detect_mode in ("data_api", "auto") and bool(
             self.data_api and self.data_api.configured
         )
-        use_livebroadcasts = self.live_detect_mode == "livebroadcasts"
 
-        if use_livebroadcasts:
+        if self.live_detect_mode == "livebroadcasts":
             notifications = await self._check_via_livebroadcasts(state)
-        elif use_api or self.live_detect_mode in ("data_api", "auto"):
-            if not use_api and self.live_detect_mode == "auto":
-                logger.info(
-                    f"[YT] channel={state.channel_id} 未配置 API Key，回退 legacy feed"
-                )
+        elif self.live_detect_mode == "feed":
+            # 显式 feed 模式：用户明确要求用 legacy feed，不参与降级链
+            snapshot = await self._fetch_legacy_feed(state)
+            notifications = self._apply_snapshot(state, snapshot) if snapshot else []
+        elif use_api:
             snapshot = await self._fetch_snapshot(state)
             notifications = self._apply_snapshot(state, snapshot) if snapshot else []
         else:
-            # 显式 feed 模式
-            snapshot = await self._fetch_legacy_feed(state)
+            # data_api / auto 且未配置 Key → 直接走降级链
+            if self.live_detect_mode == "auto":
+                logger.info(
+                    f"[YT] channel={state.channel_id} 未配置 API Key，回退网页数据源"
+                )
+            snapshot = await self._fetch_degraded_snapshot(
+                state, "未配置 Data API Key"
+            )
             notifications = self._apply_snapshot(state, snapshot) if snapshot else []
 
         await self._dispatch_filtered(state.channel_id, notifications)
 
     async def _fetch_snapshot(self, state: ChannelState) -> Optional[FeedResult]:
-        """用 Data API 拉取频道快照（必要时先解析并缓存 uploads 播放列表）。"""
+        """用 Data API 拉取频道快照；失败/配额耗尽时自动降级到网页 JSON。"""
         try:
             # 需要解析的情况：① 缺 uploads 播放列表；② 频道名来自抓页面
             # （可能是英文 og:title），拿到 API Key 后更正一次官方名称。
@@ -153,33 +199,75 @@ class NotificationService:
                         f"[YT] channel={state.channel_id} 未取到 uploads 播放列表"
                     )
                     return None
-            return await self.data_api.fetch_snapshot(
+            snapshot = await self.data_api.fetch_snapshot(
                 state.channel_id,
                 state.uploads_playlist_id,
                 max_results=self.max_results,
                 channel_name=state.channel_name,
             )
+            self._clear_degraded(state.channel_id)
+            return snapshot
         except QuotaExceededError as exc:
             logger.error(
-                f"[YT] Data API 配额耗尽，本轮跳过 channel={state.channel_id}: {exc}"
+                f"[YT] Data API 配额耗尽 channel={state.channel_id}: {exc}"
             )
+            return await self._fetch_degraded_snapshot(state, "Data API 配额耗尽")
         except InvalidApiKeyError as exc:
             logger.error(f"[YT] API Key 无效，请检查配置: {exc}")
+            return await self._fetch_degraded_snapshot(state, "API Key 无效")
         except ApiKeyMissingError as exc:
             # 每轮都会走到这里，只报一次免得刷屏
             if not self._api_key_warned:
                 self._api_key_warned = True
-                logger.error(
-                    f"[YT] {exc} —— 监控不会工作。"
-                    "请在插件配置 basic.api_key 填入 YouTube Data API Key 后重载插件"
-                )
+                logger.error(f"[YT] {exc} —— 改用网页兜底数据源")
             else:
                 logger.debug(f"[YT] 仍未配置 API Key，跳过 channel={state.channel_id}")
+            return await self._fetch_degraded_snapshot(state, "未配置 Data API Key")
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 f"[YT] channel={state.channel_id} Data API 拉取失败: {exc!r}"
             )
-        return None
+            return await self._fetch_degraded_snapshot(state, "Data API 请求失败")
+
+    async def _fetch_degraded_snapshot(
+        self, state: ChannelState, reason: str
+    ) -> Optional[FeedResult]:
+        """降级链：网页 JSON（优先，实测可用）→ legacy feed（最后手段）。
+
+        网页 JSON 取代 legacy feed 作为首选兜底：feed 端点自 2025 年底起
+        大面积 404（见 services/feed.py 与 CLAUDE.md），而网页 JSON 实测可用。
+        """
+        if not self.page_fallback_enabled:
+            logger.debug(
+                f"[YT] channel={state.channel_id} 网页兜底已关闭（{reason}）"
+            )
+            return await self._fetch_legacy_feed(state)
+
+        snapshot = None
+        if self.page_json is not None:
+            snapshot = await self.page_json.fetch_snapshot(
+                state.channel_id,
+                state.channel_handle,
+                max_results=self.max_results,
+                channel_name=state.channel_name,
+            )
+
+        if snapshot is not None:
+            self._mark_degraded(state.channel_id, f"{reason} → 网页兜底")
+            # 网页给的频道名可能是官方语言，比抓页面兜底的名字可信
+            if snapshot.channel_name:
+                self.store.set_channel_name(state.channel_id, snapshot.channel_name)
+                state.channel_name = snapshot.channel_name
+            return snapshot
+
+        logger.warning(
+            f"[YT] channel={state.channel_id} 网页兜底失败（{reason}），"
+            "继续回退 legacy feed"
+        )
+        feed = await self._fetch_legacy_feed(state)
+        if feed is not None:
+            self._mark_degraded(state.channel_id, f"{reason} → legacy feed（不可靠）")
+        return feed
 
     async def _fetch_legacy_feed(self, state: ChannelState) -> Optional[FeedResult]:
         if self.legacy_feed is None:
@@ -213,11 +301,11 @@ class NotificationService:
                     f"[YT] channel={state.channel_id} LiveBroadcasts 检测失败: {exc!r}"
                 )
 
-        # 投稿始终走 Data API（若可用），否则 legacy feed
+        # 投稿始终走 Data API（若可用），否则降级链
         if self.data_api and self.data_api.configured:
             snapshot = await self._fetch_snapshot(state)
         else:
-            snapshot = await self._fetch_legacy_feed(state)
+            snapshot = await self._fetch_degraded_snapshot(state, "未配置 Data API Key")
         if snapshot is not None:
             notifications.extend(find_new_videos(snapshot.entries, state, now_iso))
         return notifications
@@ -294,12 +382,44 @@ class NotificationService:
                         f"[YT] 推送失败 session={session} type={n.type}: {exc!r}"
                     )
 
-    async def _render_notification(self, n: Notification) -> Optional[str]:
+    async def _render_notification(
+        self, n: Notification, *, test: bool = False
+    ) -> Optional[str]:
         data = n.to_dict()
         data["thumbnail_path"] = ""
+        data["test"] = bool(test)
         if self.cover_download and n.thumbnail_url and self.data_api is not None:
             thumb_path = self.image_dir / f"{n.video_id or 'thumb'}.jpg"
             ok = await self.data_api.download_image(n.thumbnail_url, thumb_path)
             if ok and thumb_path.exists():
                 data["thumbnail_path"] = str(thumb_path)
         return await self.renderer.render(data)
+
+    # ------------------------------------------------------------ 测试通知
+
+    async def dispatch_test(
+        self, session: str, notification: Notification
+    ) -> Optional[str]:
+        """把一条测试通知渲染并推送到指定会话，返回图片路径（失败为 None）。
+
+        供 /yt直播测试 /yt视频测试 使用：走的是与真实推送**完全相同**的
+        渲染 + 发送链路，但标记为测试（图上会有「测试」字样），
+        且不触碰任何去重状态。
+        """
+        path = await self._render_notification(notification, test=True)
+        if not path:
+            logger.warning(
+                f"[YT] 测试通知渲染失败 type={notification.type} "
+                f"video={notification.video_id}"
+            )
+            return None
+        try:
+            await self.context.send_message(session, MessageChain().file_image(path))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[YT] 测试通知推送失败 session={session}: {exc!r}")
+            return None
+        logger.info(
+            f"[YT] 已推送测试通知 {notification.type} → session={session} "
+            f"video={notification.video_id or '-'}"
+        )
+        return path

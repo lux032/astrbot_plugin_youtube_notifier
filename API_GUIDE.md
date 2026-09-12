@@ -1,13 +1,14 @@
 # API 接入指南
 
-本插件有三种数据源，按推荐程度排列：
+本插件有四种数据源，按推荐程度排列：
 
 | 数据源 | 鉴权 | 用途 | 可靠性 | 默认 |
 |---|---|---|---|---|
 | **YouTube Data API v3** | **API Key** | 任意频道的直播 + 投稿 | ✅ 官方、稳定 | ✅ 主数据源 |
-| 网页抓取（频道页 HTML） | 无 | 仅用于无 Key 时解析 @handle | ⚠️ 脆弱、约 2MB/次 | 兜底 |
+| **网页 JSON**（`ytInitialData`） | 无 | 任意频道的直播 + 投稿 | ⚠️ 实测可用但脆弱 | ✅ 降级链首选 |
+| 网页抓取（频道页 HTML 正则） | 无 | 仅用于解析 @handle | ⚠️ 脆弱、约 2MB/次 | 兜底 |
 | liveBroadcasts API | OAuth 2.0 | 仅**自己**频道的直播 | ✅ 但能力受限 | 可选 |
-| ~~Atom feed~~ | 无 | ~~任意频道~~ | ❌ **已不可靠** | legacy |
+| ~~Atom feed~~ | 无 | ~~任意频道~~ | ❌ **已不可靠** | 最后兜底 |
 
 ---
 
@@ -27,6 +28,37 @@
 而是 Google 收紧非官方数据访问导致的**不稳定**。Google 未发布废弃公告。
 
 因此：**请务必配置 API Key**，不要依赖 feed。
+
+---
+
+## 自动降级链
+
+旧版本在配额耗尽或没配 Key 时会掉到已不可靠的 feed。现在改为：
+
+```
+Data API 配额耗尽 / 请求失败 / API Key 无效 / 未配置 Key
+    → 网页 JSON（services/page_json.py）⭐ 实测可用（2026-09-12）
+    → legacy Atom feed（仅当网页也失败）
+```
+
+由 `page_fallback_enabled`（默认开）控制。降级会记日志并在 `/yt列表` 显示
+`⚠️ 数据源已降级: …`，不会悄悄发生。
+
+### 网页 JSON 的能力与代价（实测 2026-09-12）
+
+抓的是频道页里内嵌的 `ytInitialData`（列表项为 `lockupViewModel`）。
+
+| 项 | 情况 |
+|---|---|
+| 直播检测 | ✅ 靠缩略图角标 `..._BADGE_STYLE_LIVE`（实测 @NASA/@SkyNews 命中） |
+| 投稿检测 | ✅ 与 `/videos` 一致 |
+| 流量 | ⚠️ **每次 2 个页面、约 2.4MB**（直播只在 `/streams` 有，`/videos` 为 0） |
+| 时间戳 | ⚠️ **无精确时间**，由 "6 days ago" 换算，仅够排序展示 |
+| 直播时长 | ⚠️ **不准确**（网页不给 actualStartTime/actualEndTime） |
+| 直播存档 vs 投稿 | ⚠️ 页面**无法区分**（角标相同），靠状态机的 `recent_live_ids` 挡重复 |
+
+> 所以：**能用 API Key 就用 API Key**。网页 JSON 是为了「配额用完/暂时没 Key 时不至于瘫痪」，
+> 而不是替代品。
 
 ---
 
@@ -199,6 +231,9 @@ python scripts/diagnose.py @handle --api-key AIza...
 
 # 走代理
 python scripts/diagnose.py @handle --api-key AIza... --proxy http://127.0.0.1:7890
+
+# 只体检网页 JSON 兜底（不需要 API Key）
+python scripts/diagnose.py @handle --check-page
 
 # 顺带体检 legacy feed（确认其确实不可用）
 python scripts/diagnose.py @handle --api-key AIza... --check-feed

@@ -85,6 +85,7 @@ async def retry_async(
     jitter: float = 0.3,
     logger: Optional[logging.Logger] = None,
     label: str = "request",
+    non_retryable: tuple[type[BaseException], ...] = (),
 ):
     """指数退避重试：网络错误 / 5xx / 429 时重试。
 
@@ -95,14 +96,22 @@ async def retry_async(
         jitter: 抖动比例。
         logger: 打日志用 logger。
         label: 日志前缀。
+        non_retryable: **不该重试**的异常类型，命中即刻抛出。
 
     Note:
         若异常带 Retry-After（含 aiohttp 响应头），优先采用该值作为退避时长。
+
+    Note:
+        `non_retryable` 很重要：把「永久性失败」丢进重试循环既浪费时间又刷屏。
+        实测踩坑：API Key 无效这类调用方语义错误被重试 3 次，
+        每次白等 1.1s + 3.3s + 11.6s ≈ 16 秒，才走到本该立即执行的降级逻辑。
     """
     last_exc: Optional[Exception] = None
     for attempt in range(retries + 1):
         try:
             return await coro_factory()
+        except non_retryable:
+            raise  # 语义性失败，重试不会变好
         except Exception as exc:  # noqa: BLE001 - 网络层统一重试
             last_exc = exc
             retry_after = _retry_after_seconds(exc)
@@ -122,6 +131,23 @@ async def retry_async(
                 if logger:
                     logger.warning(f"[YT] {label} 重试耗尽: {exc!r}")
     raise last_exc  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------- 网络常量
+
+# 浏览器 UA —— YouTube 对缺少浏览器特征的请求会返回精简页/机器人校验。
+# 手机版页面结构不同，务必用桌面版 UA。
+BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+)
+
+# 抓取 YouTube 网页时统一的请求头（Accept-Language 固定英文，
+# 相对时间/日期文案才能用固定词表解析，见 services/page_json.py）
+BROWSER_HEADERS = {
+    "User-Agent": BROWSER_UA,
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 
 # ---------------------------------------------------------------- 字体解析

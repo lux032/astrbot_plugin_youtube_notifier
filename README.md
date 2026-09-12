@@ -48,9 +48,25 @@ python scripts/diagnose.py @ukaisaki --api-key AIza...
 | `/yt订阅 @handle` | 订阅频道，也接受频道ID / 频道URL |
 | `/yt取消订阅 @handle` | 取消本会话的订阅（同样接受 ID / URL）|
 | `/yt列表` | 查看本会话订阅与频道状态 |
+| `/yt直播测试 <目标>` | 抓目标当前直播，渲染推送一张**测试**图 |
+| `/yt视频测试 <目标>` | 抓目标最新视频，渲染推送一张**测试**图 |
 
 支持的输入形式：`@ukaisaki`、`ukaisaki`、`https://www.youtube.com/@ukaisaki`、
 `https://www.youtube.com/channel/UC...`、`UCxxxxxxxxxxxxxxxxxxxxxx`。
+
+### 测试指令
+
+`/yt直播测试` 与 `/yt视频测试` 走的是与真实推送**完全相同**的抓取 → 渲染 →
+推送链路，只是图上多一个「🧪 测试」标记，且不触碰任何去重状态。
+
+```bash
+/yt直播测试 @NASA                                      # 该频道当前直播
+/yt视频测试 @MrBeast                                   # 该频道最新视频
+/yt视频测试 https://www.youtube.com/watch?v=gTKS8SAwUzE  # 指定视频
+```
+
+用途：确认渲染与推送到当前会话是否正常（字体、封面下载、适配器发图）。
+目标当前没有直播时，回复会**明确说明**这张图借用的是哪条内容，不会假装是直播。
 
 ## 配额与轮询间隔
 
@@ -67,8 +83,10 @@ python scripts/diagnose.py @ukaisaki --api-key AIza...
 
 | 配置 | 默认 | 说明 |
 |---|---|---|
-| `api_key` | — | **必填**，YouTube Data API Key |
+| `api_key` | — | **强烈建议填**，YouTube Data API Key（不填会走网页兜底） |
 | `live_detect_mode` | `data_api` | `data_api` / `livebroadcasts` / `feed` / `auto` |
+| `page_fallback_enabled` | `true` | **配额耗尽/请求失败时自动改用网页 JSON** |
+| `page_fallback_min_interval_seconds` | `60` | 网页兜底同频道最小抓取间隔 |
 | `poll_interval_seconds` | `300` | 轮询间隔，见上表 |
 | `max_results` | `5` | 每轮拉取最近多少条视频（1-50） |
 | `proxy` | — | 代理，如 `http://127.0.0.1:7890`（大陆网络通常需要） |
@@ -77,13 +95,31 @@ python scripts/diagnose.py @ukaisaki --api-key AIza...
 | `oauth.*` | — | 仅 `livebroadcasts` 模式需要 |
 | `websub.*` | 关闭 | ⚠️ 依赖已不可靠的 feed，不建议启用 |
 
+### 自动降级（配额用完也不会断）
+
+```
+Data API 配额耗尽 / 请求失败 / API Key 无效 / 未配置 Key
+    → 网页 JSON（抓频道页 ytInitialData）⭐ 实测可用
+    → legacy Atom feed（仅当网页也失败）
+```
+
+降级**不是静默的**：`/yt列表` 会显示 `⚠️ 数据源已降级: …`，订阅回复也会提示。
+
+网页兜底的代价（已实测，心里有数即可）：
+
+- 直播只在 `/streams` 标签页有 → 每次检查抓 **2 个页面**，约 **2.4MB**
+- **没有精确时间戳**，时间由 "6 days ago" 这类相对文案换算，仅够排序展示
+- 直播的**时长不准确**（网页不给实际开始/结束时间）
+- 未配置 Key 时自动使用，所以**不配 Key 也能用**（只是不如官方 API 稳）
+
 ## 开发
 
 ```bash
-python tests/test_imports.py        # 包导入冒烟 + 配置 schema 校验
+python tests/test_imports.py        # 包导入冒烟 + 配置 schema 校验 + 就绪语义矩阵
 python tests/test_state_machine.py  # 状态机 + feed 解析（含真实 feed 回归）
 python tests/test_store.py          # 会话隔离 + 持久化
 python tests/test_data_api.py       # Data API 解析与快照组装（mock HTTP）
+python tests/test_page_json.py      # 网页 JSON 解析 + 降级链（含真实页面回归）
 ```
 
 测试全部离线，不依赖 AstrBot 运行时与网络。
@@ -92,6 +128,7 @@ python tests/test_data_api.py       # Data API 解析与快照组装（mock HTTP
 
 ```bash
 python scripts/diagnose.py @handle --api-key AIza...   # 完整数据源诊断
+python scripts/diagnose.py @handle --check-page         # 只体检网页兜底（无需 Key）
 python scripts/diagnose.py @handle --check-feed         # 顺带体检 legacy feed
 python scripts/diagnose.py --file feed.xml              # 离线解析本地 XML
 ```
@@ -106,15 +143,16 @@ renderer.py             # Pillow 文生图通知（三模板）
 utils.py                # 重试退避 / 时间 / 字体 / emoji / 换行
 services/
   data_api.py           # ★ 主数据源：Data API v3（API Key）+ @handle 解析 + 配额计数
-  feed.py               # legacy Atom feed（⚠️ 端点已不可靠，仅兜底）
+  page_json.py          # ★ 网页 JSON 兜底：频道页 ytInitialData 抓取与解析
+  feed.py               # legacy Atom feed（⚠️ 端点已不可靠，仅最后兜底）
   livebroadcasts.py     # LiveBroadcasts API（OAuth，仅自己的频道）
-  scrape.py             # 无 Key 时抓频道页兜底
+  scrape.py             # 频道页 HTML 正则（handle 解析兜底）
   oauth.py              # OAuth token 管理与 device flow
   models.py             # 数据模型
   store.py              # 订阅存储（会话隔离 + JSON 持久化）
   state_machine.py      # 直播状态机（纯逻辑）
   poller.py             # asyncio 后台轮询
-  notifier.py           # 检测 → 渲染 → 推送
+  notifier.py           # 检测 → 渲染 → 推送 + 降级链
   websub*.py            # WebSub 推送（默认关闭）
 ```
 
