@@ -218,9 +218,33 @@ _FONT_EXTS = (".ttf", ".ttc", ".otf", ".otc")
 _CJK_PROBE = "中"
 _MISSING_PROBE = "\ue000"
 
+# 额外的字体搜索目录（由插件启动时登记，见 register_font_dirs）。
+# 主要服务于 Docker：AstrBot 的 data/ 通常被挂载到宿主机，
+# 把字体丢进 <data_dir>/fonts/ 即「容器内可见 + 重启不丢」。
+_EXTRA_FONT_DIRS: list[str] = []
+
 _CJK_SUPPORT_CACHE: dict[str, bool] = {}
 _RESOLVED_FONT: Optional[str] = None
 _RESOLVED_DONE = False
+
+
+def register_font_dirs(dirs) -> None:
+    """登记额外的字体搜索目录（优先于系统目录扫描）。
+
+    设计意图：让用户有一个**一定对插件可见**的放字体位置，避免
+    「字体装在了宿主机、插件在容器里看不见」这类问题。已在搜索目录里的
+    路径会被去重；登记会重置解析缓存，所以必须在创建渲染器之前调用。
+    """
+    global _RESOLVED_DONE
+    added = []
+    for d in dirs or ():
+        path = str(d)
+        if path and path not in _EXTRA_FONT_DIRS:
+            _EXTRA_FONT_DIRS.append(path)
+            added.append(path)
+    if added:
+        _RESOLVED_DONE = False  # 让下次解析重新走一遍（含新目录）
+        logger.debug(f"[YT] 已登记额外字体目录: {added}")
 
 
 def font_supports_cjk(path: str, size: int = 40) -> bool:
@@ -282,12 +306,40 @@ def _iter_scan_fonts() -> list[str]:
     return hinted + others
 
 
+def _iter_extra_fonts() -> list[str]:
+    """已登记的额外目录里的字体文件（不递归，直接放文件即可）。"""
+    found: list[str] = []
+    for d in _EXTRA_FONT_DIRS:
+        if not os.path.isdir(d):
+            continue
+        try:
+            for name in sorted(os.listdir(d)):
+                if name.lower().endswith(_FONT_EXTS):
+                    found.append(os.path.join(d, name).replace(os.sep, "/"))
+        except OSError as exc:
+            logger.warning(f"[YT] 无法读取字体目录 {d}: {exc!r}")
+    return found
+
+
 def find_cjk_font() -> Optional[str]:
     """找出一个真正能渲染中文的字体；找不到返回 None。
 
-    顺序：① 已知路径（含推荐安装的 Noto CJK）→ ② 扫描字体目录。
+    顺序：① 已登记的额外目录（`<data_dir>/fonts`）
+         ② 已知系统路径（含推荐安装的 Noto CJK）
+         ③ 扫描系统字体目录
+
+    **额外目录优先于系统字体**：用户把字体文件放进 `<data_dir>/fonts/`
+    是一个明确的意图（通常正是为了绕开「系统字体不可见/不合适」），
+    若被系统字体抢先命中，用户会看到「放了却没生效」而一头雾水。
+    仅 `render.font_path` 比它更优先。
+
     结果缓存，避免每轮渲染重复扫描文件系统。
     """
+    for path in _iter_extra_fonts():
+        if font_supports_cjk(path):
+            logger.info(f"[YT] 使用 data 目录内的中文字体: {path}")
+            return path
+
     for path in _FONT_CANDIDATES:
         if os.path.exists(path) and font_supports_cjk(path):
             return path
@@ -316,7 +368,9 @@ def resolve_font_path(override: Optional[str] = None) -> Optional[str]:
     if override:
         if not os.path.exists(override):
             logger.error(
-                f"[YT] 配置的 render.font_path 不存在，已忽略并自动选择: {override}"
+                f"[YT] 配置的 render.font_path 在**插件运行环境内**不存在，"
+                f"已忽略并自动选择: {override}\n"
+                f"{font_path_missing_hint(override)}"
             )
         elif not font_supports_cjk(override):
             logger.error(
@@ -341,6 +395,50 @@ def resolve_font_path(override: Optional[str] = None) -> Optional[str]:
             return path
     _RESOLVED_DONE = True
     return None
+
+
+def running_in_container() -> bool:
+    """是否运行在容器里（用于把报错引向正确的排查方向）。"""
+    if os.path.exists("/.dockerenv"):
+        return True
+    try:
+        with open("/proc/1/cgroup", "r", encoding="utf-8", errors="ignore") as f:
+            cgroup = f.read()
+        if "docker" in cgroup or "containerd" in cgroup or "kubepods" in cgroup:
+            return True
+    except OSError:
+        pass
+    return False
+
+
+def font_path_missing_hint(override: str) -> str:
+    """配置的字体路径不存在时，给出针对性的排查指引。
+
+    最常见的原因是 **Docker**：字体装在宿主机上，而插件在容器里跑，
+    容器有自己的文件系统，没挂载就看不到宿主机的 /usr/share/fonts。
+    光说「不存在」会让人反复确认路径拼写，其实方向完全错了。
+    """
+    lines = [f"路径检查是在插件自己的运行环境内做的: {override}"]
+    if running_in_container():
+        lines += [
+            "检测到插件运行在容器中：容器有独立的文件系统，"
+            "宿主机上安装的字体在容器内**默认不可见**。请任选一种：",
+            "  ① 清空 render.font_path —— 官方 AstrBot 镜像已内置 fonts-noto-cjk，"
+            "通常无需手动指定；",
+            "  ② 把宿主机字库挂载进容器（docker-compose.yml 的 volumes 增加）：",
+            "       - /usr/share/fonts:/usr/share/fonts:ro",
+            "     然后 docker compose up -d 重建容器，原路径即可生效；",
+            "  ③ 把字体文件放到插件 data 目录下的 fonts/ 子目录"
+            "（该目录已挂载、容器内可见且重启不丢），无需再配 font_path：",
+            "       <宿主机 AstrBot 数据目录>/plugin_data/"
+            "astrbot_plugin_youtube_notifier/fonts/",
+        ]
+    else:
+        lines += [
+            "请确认路径拼写，以及该字体文件确实存在于本机；"
+            "也可直接清空 render.font_path 让插件自动选择。"
+        ]
+    return "\n".join(lines)
 
 
 def cjk_font_install_hint() -> str:

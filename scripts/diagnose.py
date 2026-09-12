@@ -77,21 +77,51 @@ def _line(char: str = "=") -> None:
     print(char * 68)
 
 
-def check_fonts() -> int:
-    """体检中文字体（通知图里中文变方框就是这个原因）。不需要网络。"""
+def check_fonts(configured_path: str = "") -> int:
+    """体检中文字体（通知图里中文变方框就是这个原因）。不需要网络。
+
+    Args:
+        configured_path: 插件配置里的 render.font_path，用于验证它在本环境
+            是否真的可用（Docker 场景下宿主机路径常常在容器里不存在）。
+    """
     from astrbot_plugin_youtube_notifier.utils import (
-        _EMOJI_FONT_CANDIDATES,
+        _EXTRA_FONT_DIRS,
         _FONT_SCAN_DIRS,
         cjk_font_install_hint,
-        find_cjk_font,
+        font_path_missing_hint,
         font_supports_cjk,
         resolve_emoji_font_path,
         resolve_font_path,
+        running_in_container,
     )
 
     _line()
     print("⓪ 字体体检（中文显示为方框时看这里）")
     _line()
+
+    in_container = running_in_container()
+    print(f"运行环境     : {'容器内（Docker 等）' if in_container else '直接在宿主机上'}")
+    if _EXTRA_FONT_DIRS:
+        for d in _EXTRA_FONT_DIRS:
+            import os as _os
+            state = "存在" if _os.path.isdir(d) else "不存在"
+            n = len(_os.listdir(d)) if _os.path.isdir(d) else 0
+            print(f"data 字体目录: {d}  [{state}, {n} 个文件]")
+    else:
+        print("data 字体目录: (未登记)")
+
+    if configured_path:
+        import os as _os
+        print(f"配置的 font_path: {configured_path}")
+        if not _os.path.exists(configured_path):
+            print("  ❌ 在**当前运行环境内**不存在 —— 该配置会被忽略")
+            print()
+            print(font_path_missing_hint(configured_path))
+            print()
+        elif not font_supports_cjk(configured_path):
+            print("  ❌ 存在，但不含中文字形（中文仍会显示为方框）")
+        else:
+            print("  ✅ 存在且支持中文")
 
     resolved = resolve_font_path()
     ok = font_supports_cjk(resolved) if resolved else False
@@ -303,12 +333,14 @@ def main() -> int:
                     help="体检网页 JSON 兜底数据源（不需要 API Key）")
     ap.add_argument("--check-fonts", action="store_true",
                     help="体检中文字体（通知图中文变方框时用；不需要频道/Key/网络）")
+    ap.add_argument("--font-path", default="",
+                    help="顺带验证插件配置里的 render.font_path 在本环境是否可用")
     ap.add_argument("--file", default="", help="离线解析本地 feed XML")
     args = ap.parse_args()
 
     # 字体体检完全不依赖网络与频道，单独跑完即退出
-    if args.check_fonts and not args.channel:
-        return check_fonts()
+    if (args.check_fonts or args.font_path) and not args.channel:
+        return check_fonts(args.font_path)
 
     if args.file:
         return diagnose_file(args.file)
@@ -317,8 +349,8 @@ def main() -> int:
         ap.error("需要提供频道标识，或用 --file / --check-fonts 单独体检")
 
     # 跟着频道一起跑时，字体体检放最前（它最能解释「图里全是方框」）
-    if args.check_fonts:
-        check_fonts()
+    if args.check_fonts or args.font_path:
+        check_fonts(args.font_path)
         print()
 
     # 只体检网页兜底：不需要 Key，直接跑

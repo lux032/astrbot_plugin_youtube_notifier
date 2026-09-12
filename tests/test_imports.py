@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import types
 from pathlib import Path
@@ -315,6 +316,84 @@ def test_font_cjk_detection() -> None:
     print("✅ test_font_cjk_detection")
 
 
+def test_data_dir_font_takes_priority() -> None:
+    """`<data_dir>/fonts/` 里的字体要优先于系统字体。
+
+    这是 Docker 用户的主要自救手段：AstrBot 的 data/ 已挂载到宿主机，
+    把 ttf 丢进 plugin_data/<插件名>/fonts/ 即「容器内可见 + 重启不丢」。
+    若系统字体抢先命中，用户会觉得「放了却没生效」。
+    """
+    import shutil
+    import tempfile
+
+    from astrbot_plugin_youtube_notifier import utils as u
+
+    # 找一个本机真实存在的含中文字体来冒充「用户丢进来的字体」
+    source = next(
+        (p for p in ("C:/Windows/Fonts/msyh.ttc", "C:/Windows/Fonts/simhei.ttf")
+         if os.path.exists(p)),
+        None,
+    )
+    if source is None:
+        print("✅ test_data_dir_font_takes_priority (跳过：本机无中文字体样本)")
+        return
+
+    tmp = tempfile.mkdtemp(prefix="yt_font_")
+    try:
+        fonts_dir = Path(tmp) / "fonts"
+        fonts_dir.mkdir()
+        dropped = fonts_dir / "UserFont.ttf"
+        shutil.copy(source, dropped)
+
+        # 保存全局状态，避免污染后续测试
+        saved = (u._EXTRA_FONT_DIRS[:], u._RESOLVED_DONE, u._RESOLVED_FONT)
+        try:
+            u._EXTRA_FONT_DIRS.clear()
+            u._RESOLVED_DONE, u._RESOLVED_FONT = False, None
+            u.register_font_dirs([fonts_dir])
+            resolved = u.resolve_font_path()
+            assert resolved is not None, "未解析出字体"
+            assert "UserFont" in resolved, f"未优先使用 data 目录字体: {resolved}"
+            assert u.font_supports_cjk(resolved)
+
+            # 显式 font_path 仍应比 data 目录更优先
+            explicit = u.resolve_font_path(source)
+            assert explicit == source, f"font_path 未最高优先: {explicit}"
+        finally:
+            u._EXTRA_FONT_DIRS[:] = saved[0]
+            u._RESOLVED_DONE, u._RESOLVED_FONT = saved[1], saved[2]
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    print("✅ test_data_dir_font_takes_priority")
+
+
+def test_font_path_missing_hint_mentions_container() -> None:
+    """配置的字体路径不存在时，必须把 Docker 这个最常见原因说出来。
+
+    真实踩坑：用户在宿主机 apt 装了字体、把 font_path 指向它，但插件在容器
+    里跑 —— 容器看不到宿主机文件。原来只报「不存在」，用户会反复核对路径
+    拼写，方向完全错了。
+    """
+    from astrbot_plugin_youtube_notifier import utils as u
+
+    # 非容器环境：给出常规指引，且不该出现误导性的挂载建议
+    u.running_in_container = lambda: False
+    plain = u.font_path_missing_hint("/x/y.ttf")
+    assert "/x/y.ttf" in plain
+    assert "volumes" not in plain, "非容器环境不该提挂载"
+
+    # 容器环境：三条可选修复都要给出
+    u.running_in_container = lambda: True
+    hint = u.font_path_missing_hint("/usr/share/fonts/truetype/maple/MapleMono.ttf")
+    for token in ("/usr/share/fonts", "fonts-noto-cjk", "plugin_data", "fonts"):
+        assert token in hint, f"容器指引缺少 {token}"
+    assert "volumes" in hint and ":ro" in hint, "缺少挂载示例"
+
+    # 还原（本进程内其它测试可能依赖真实实现）
+    del u.running_in_container
+    print("✅ test_font_path_missing_hint_mentions_container")
+
+
 def test_conf_schema_valid() -> None:
     schema_path = PLUGIN_ROOT / "_conf_schema.json"
     schema = json.loads(schema_path.read_text(encoding="utf-8-sig"))
@@ -384,6 +463,8 @@ def main() -> int:
         test_status_text_distinguishes_states,
         test_monitoring_blocker,
         test_font_cjk_detection,
+        test_data_dir_font_takes_priority,
+        test_font_path_missing_hint_mentions_container,
         test_conf_schema_valid,
         test_metadata_valid,
         test_required_files_present,

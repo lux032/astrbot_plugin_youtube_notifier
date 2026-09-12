@@ -50,7 +50,7 @@ from .services.state_machine import seed_channel_from_feed
 from .services.store import SubscriptionStore
 from .services.websub import WebSubManager
 from .services.websub_server import WebSubCallbackServer
-from .utils import format_time_zh
+from .utils import format_time_zh, register_font_dirs
 
 PLUGIN_NAME = "astrbot_plugin_youtube_notifier"
 HTTP_TIMEOUT = aiohttp.ClientTimeout(total=30, connect=10)
@@ -125,6 +125,11 @@ class YouTubeNotifierPlugin(Star):
 
         self.store = SubscriptionStore(self.data_dir)
         self.store.load()
+
+        # 登记 <data_dir>/fonts/ 为字体搜索目录。data 目录在 Docker 部署里
+        # 通常被挂载到宿主机，所以这是「容器内可见 + 重启不丢」的放字体位置
+        # —— 用户把 ttf 丢进去即可，无需挂载宿主机字库、也无需配 font_path。
+        register_font_dirs([self.data_dir / "fonts"])
 
         self.renderer = NotificationRenderer(
             image_width=int(render_cfg.get("image_width", 800) or 800),
@@ -696,10 +701,14 @@ class YouTubeNotifierPlugin(Star):
         """
         if self.renderer is None or getattr(self.renderer, "cjk_ok", True):
             return ""
+        fonts_dir = self.data_dir / "fonts"
         return (
-            "服务器缺少中文字体，通知图中的中文会显示为方框。"
-            "Debian/Ubuntu 执行 `apt-get install -y fonts-noto-cjk`，"
-            "或把中文字体文件路径填入配置项 render.font_path，然后重载插件"
+            "服务器（或容器）里缺少中文字体，通知图中的中文会显示为方框。任选一种：\n"
+            "  ① Debian/Ubuntu: apt-get install -y fonts-noto-cjk\n"
+            "  ② 把任意中文字体文件放进这个目录，然后重载插件（Docker 下同样有效，"
+            f"该目录已被挂载）：{fonts_dir}\n"
+            "  ③ 在配置项 render.font_path 填入字体文件的绝对路径"
+            "（注意：Docker 部署要填**容器内**的路径，宿主机路径容器看不到）"
         )
 
     def _oauth_configured(self) -> bool:

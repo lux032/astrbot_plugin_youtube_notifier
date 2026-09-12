@@ -96,6 +96,8 @@ python scripts/diagnose.py @ukaisaki --api-key AIza...
 | `cleanup.max_total_mb` | `500` | 图片总量上限，超出则从最旧开始删（`0` = 不限） |
 | `cleanup.hour` | `4` | 每天几点清理（本地时间，0-23） |
 | `cleanup.run_on_startup` | `true` | 启动后也补清理一次 |
+| `render.image_width` | `800` | 通知图宽度（像素） |
+| `render.font_path` | 自动 | 中文字体路径。**建议留空**自动探测；Docker 下填宿主机路径无效，见「常见问题」 |
 | `notify.*` | 全开 | 分别开关上播/下播/新投稿通知 |
 | `oauth.*` | — | 仅 `livebroadcasts` 模式需要 |
 | `websub.*` | 关闭 | ⚠️ 依赖已不可靠的 feed，不建议启用 |
@@ -151,10 +153,14 @@ python tests/test_cleanup.py        # 图片清理：年龄/总量策略 + 误�
 ```bash
 python scripts/diagnose.py @handle --api-key AIza...   # 完整数据源诊断
 python scripts/diagnose.py --check-fonts                # 只体检中文字体（无需网络）
+python scripts/diagnose.py --font-path /path/to/x.ttf   # 验证配置的 font_path 在本环境是否可用
 python scripts/diagnose.py @handle --check-page         # 只体检网页兜底（无需 Key）
 python scripts/diagnose.py @handle --check-feed         # 顺带体检 legacy feed
 python scripts/diagnose.py --file feed.xml              # 离线解析本地 XML
 ```
+
+> Docker 部署时，这些命令要在**容器内**执行才会看到容器真实情况：
+> `docker exec -it astrbot python /AstrBot/data/plugins/astrbot_plugin_youtube_notifier/scripts/diagnose.py --check-fonts`
 
 > 诊断脚本需在**能访问 YouTube** 的机器上运行（通常是 VPS）。
 
@@ -186,8 +192,8 @@ services/
 
 ### VPS 上图里中文全是方框（豆腐块）
 
-**原因**：服务器没装中文字体。Linux 最小化安装通常自带 DejaVuSans（纯拉丁、
-不含任何中文字形），插件会拿它来渲染，于是所有中文变成 `□`。
+**原因**：插件找不到中文字体。Linux 最小化安装通常自带 DejaVuSans（纯拉丁、
+不含任何中文字形），拿它渲染就会把所有中文变成 `□`。
 
 **修复**（任选其一，装完重载插件）：
 
@@ -217,6 +223,49 @@ python scripts/diagnose.py --check-fonts   # 会打印判定结果并生成一�
 
 > 插件启动时会自己检测中文字体：缺失时日志里会打出带安装命令的 ERROR，
 > `/yt列表` 也会在聊天里提示 —— 不会让你对着方框猜原因。
+
+### Docker 部署：配了 `font_path` 却提示「不存在」
+
+**这不是路径写错，而是容器看不到宿主机的文件。** 插件跑在容器里，
+`font_path` 的检查是在**容器自己的文件系统**内做的；你在宿主机上
+`apt install` 的字体，容器里默认没有。
+
+> 官方镜像 `soulter/astrbot:latest` 的 Dockerfile 里**已经装了
+> `fonts-noto-cjk`**，所以最简单的是**直接清空 `render.font_path`**，
+> 插件会自动找到容器内的 Noto CJK —— 通常根本不用手动指定字体。
+
+想用自己装的字体（比如 Maple Mono NF CN），从下面任选一种：
+
+**① 先确认容器里到底有什么**（在宿主机上执行）：
+
+```bash
+docker exec -it astrbot fc-list :lang=zh | head
+docker exec -it astrbot ls /usr/share/fonts/opentype/noto/
+docker exec -it astrbot python /AstrBot/data/plugins/astrbot_plugin_youtube_notifier/scripts/diagnose.py --check-fonts
+```
+
+最后一条会直接告诉你容器内的判定结果，并生成一张测试图。
+
+**② 把宿主机字库挂载进容器** —— 在 `docker-compose.yml` 里加一行：
+
+```yaml
+    volumes:
+      - ./data:/AstrBot/data
+      - /usr/share/fonts:/usr/share/fonts:ro      # ← 新增：让容器看见宿主机字库
+```
+
+然后 `docker compose up -d` 重建容器，原来那个路径就生效了。
+
+**③ 把字体丢进插件 data 目录**（推荐，无需改 compose、重启也不丢）：
+
+AstrBot 的 `data/` 已被挂载到宿主机，所以把字体文件放到：
+
+```
+<宿主机 AstrBot 目录>/data/plugin_data/astrbot_plugin_youtube_notifier/fonts/
+```
+
+容器内对应 `/AstrBot/data/plugin_data/astrbot_plugin_youtube_notifier/fonts/`。
+放进这个目录的字体**优先于系统字体**被采用，`render.font_path` 留空即可。
 
 ## License
 
