@@ -447,6 +447,7 @@ def test_required_files_present() -> None:
         "services/page_json.py",
         "services/cleanup.py",
         "tests/test_cleanup.py",
+        "tests/test_notifier_send.py",
         # 真实数据 fixture：网页 JSON 降级链的回归基准
         "tests/fixtures/real_channel_streams_live.json",
         "tests/fixtures/real_channel_videos_normal.json",

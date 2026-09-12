@@ -56,7 +56,7 @@ services/
   poller.py              # asyncio 后台轮询
   websub.py / websub_server.py   # WebSub（默认关闭）
 renderer.py / utils.py
-tests/                   # 6 个离线测试文件 + 真实 feed / 网页 JSON fixture
+tests/                   # 7 个离线测试文件 + 真实 feed / 网页 JSON fixture
 scripts/diagnose.py / scripts/oauth_setup.py
 ```
 
@@ -105,18 +105,23 @@ scripts/diagnose.py / scripts/oauth_setup.py
 12. ✅ 修复：语义性错误（Key 无效/配额耗尽）不再进重试循环（原先白等约 16s/次）
 13. ✅ **中文字体修复**：候选链隔离纯拉丁字体 + 字形探测（`font_supports_cjk`）
 14. ✅ **图片定时清理**（`services/cleanup.py`）：按年龄 + 按总量，含误删防护
+15. ✅ **Docker 字体路径**：容器感知报错 + `<data_dir>/fonts` 放字体位置
+16. ✅ 修复「假失败」：适配器超时（NapCat）不再误报为推送失败
 
 ## 验证状态
 
 | 项 | 状态 |
 |---|---|
-| 包导入冒烟（16 模块，含 main.py） | ✅ 7/7 |
-| 配置 schema（5 分块 20 项）+ metadata | ✅ |
+| 包导入冒烟（17 模块，含 main.py） | ✅ 10/10 |
+| 配置 schema（6 分块 25 项）+ metadata | ✅ |
 | 状态机（静默接入/去重/换流/时长/VOD 防重/主播型频道） | ✅ 20/20 |
 | 会话隔离 + 持久化 + 损坏容错 | ✅ 6/6 |
 | Data API 输入解析/响应映射/快照组装（mock） | ✅ 8/8 |
 | 网页 JSON 解析 + 降级链（真实页面 fixture） | ✅ 18/18 |
-| 图片清理（年龄/总量/误删防护/任务装配） | ✅ 12/12 |
+| 图片清理（年龄/总量/误删防护/任务装配） | ✅ 13/13 |
+| 推送结果分类（适配器超时 ≠ 失败、不重试、告警不刷屏） | ✅ 11/11 |
+| **真实日志复现：NapCat 超时改报「可能已送达」** | ✅ **实测** 文案不再误导 |
+| **Docker 字体路径诊断（容器感知）** | ✅ **实测** 容器/非容器两种文案 |
 | **图片清理实测：真实目录 9.7MB → 1.6MB** | ✅ **实测** 按总量上限从最旧开始删 |
 | 中文字体字形探测 | ✅ 实测 msyh→支持、arial→不支持 |
 | **Data API 真实 Key：@handle 解析** | ✅ **实测** `@ukaisaki` → `UCNydvA0D7GSuT0c9Zs-zWdw` |
@@ -143,6 +148,7 @@ python tests/test_store.py          # 会话隔离 + 持久化
 python tests/test_data_api.py       # Data API（mock HTTP）
 python tests/test_page_json.py      # 网页 JSON 解析 + 降级链（真实页面 fixture）
 python tests/test_cleanup.py        # 图片清理：年龄/总量策略 + 误删防护
+python tests/test_notifier_send.py  # 推送结果分类（适配器超时 ≠ 推送失败）
 python scripts/diagnose.py @handle --api-key AIza...   # 真实环境诊断
 python scripts/diagnose.py @handle --check-page         # 只体检网页兜底（无需 Key）
 ```

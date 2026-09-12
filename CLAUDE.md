@@ -220,7 +220,20 @@ class ChannelState:
       会让人以为「放了没生效」。仅 `render.font_path` 比它更优先。
     - 官方镜像 `soulter/astrbot` 的 Dockerfile 已装 `fonts-noto-cjk`，
       所以「清空 font_path」往往就是最优解。
-13. **中文字体必须先验证「含中文字形」，不能只看文件存在**（`font_supports_cjk`）。
+13. **推送失败必须区分「适配器超时（其实已送达）」与「确认失败」**
+    （`classify_send_error` / `SendOutcome`）。实测踩坑：NapCat/QQ NT 的
+    `sendMsg` 会抛 `ActionFailed(retcode=1200, message='Timeout: NTEvent …
+    onMsgInfoListUpdate …')`，而图片**已经发出去了**；原实现一律当失败 →
+    日志报错 + 给用户回「渲染或推送失败」，用户明明收到了图却被误导去排查。
+    约定：① 超时类**不重试**（重试会让用户收到两张一样的图）；
+    ② 如实说「可能已送达」，既不假装成功也不误报失败；
+    ③ 真实推送里超时只告警一次（`_send_timeout_warned`），之后降 debug，
+    否则每条通知都刷一条 WARN；确认失败则每次都告警。
+    用字符串特征而非 `import aiocqhttp`：插件不该依赖具体适配器实现。
+14. **渲染异常必须在 `_render_safe` 里挡住**：渲染抛异常若冒泡出去，会中断
+    整个 dispatch 循环（同一通知的其余会话收不到），还会被上层记成
+    「频道检查失败」，把真正的原因（字体/写盘）掩盖掉。
+15. **中文字体必须先验证「含中文字形」，不能只看文件存在**（`font_supports_cjk`）。
     真实踩坑：Linux VPS 最小化安装自带 `DejaVuSans.ttf`（纯拉丁、无中文字形），
     而历史候选列表把 DejaVu 排在中文字体**之前** → 静默命中它 → 通知图里所有
     中文变豆腐块，日志里却毫无异常。禁止把纯拉丁字体混进 CJK 候选链：
@@ -237,6 +250,7 @@ python tests/test_store.py          # 会话隔离 + 持久化 + 损坏容错
 python tests/test_data_api.py       # Data API 输入解析/响应映射/快照组装（mock HTTP）
 python tests/test_page_json.py      # 网页 JSON 解析 + 降级链（含真实页面 fixture）
 python tests/test_cleanup.py        # 图片清理：年龄/总量策略 + 误删防护 + 任务装配
+python tests/test_notifier_send.py  # 推送结果分类（适配器超时 ≠ 推送失败）
 ```
 
 测试用 `sys.modules` 注入最简 astrbot 桩，**不依赖 AstrBot 运行时与网络**。

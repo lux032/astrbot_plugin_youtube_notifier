@@ -144,6 +144,7 @@ python tests/test_store.py          # 会话隔离 + 持久化
 python tests/test_data_api.py       # Data API 解析与快照组装（mock HTTP）
 python tests/test_page_json.py      # 网页 JSON 解析 + 降级链（含真实页面回归）
 python tests/test_cleanup.py        # 图片清理：年龄/总量策略 + 误删防护
+python tests/test_notifier_send.py  # 推送结果分类（适配器超时 ≠ 推送失败）
 ```
 
 测试全部离线，不依赖 AstrBot 运行时与网络。
@@ -189,6 +190,27 @@ services/
 数据保存在插件数据目录 `data/`（已 gitignore）：`state.json` 与 `images/`。
 
 ## 常见问题
+
+### 日志报「推送适配器上报超时」/ 测试命令说推送失败，但图片其实收到了
+
+**这是适配器的「假失败」，不是本插件的问题。** NapCat（QQ NT）适配器在发送后会等待
+`onMsgInfoListUpdate` 事件，该事件超时就会抛：
+
+```
+ActionFailed retcode=1200
+Timeout: NTEvent serviceAndMethod:NodeIKernelMsgService/sendMsg
+ListenerName:NodeIKernelMsgListener/onMsgInfoListUpdate
+```
+
+而消息**实际已经送达**。插件对此的处理是：
+
+- **不重试** —— 重试会让用户收到两张一样的图；
+- 如实报告「适配器上报超时、消息可能已送达」，而不是断言失败；
+- 真实推送里这类超时**只告警一次**，之后降为 debug，不会每条通知刷一条 WARN。
+
+所以看到这条日志时：先确认是不是真的收到了图片。收到了就无需处理；
+若频繁出现且影响使用，可从 NapCat 侧排查（例如降低发送频率、升级 NapCat 版本）。
+
 
 ### VPS 上图里中文全是方框（豆腐块）
 

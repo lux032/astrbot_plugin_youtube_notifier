@@ -596,18 +596,43 @@ class YouTubeNotifierPlugin(Star):
         self, session: str, notification: Notification, *, source: str, note: str = ""
     ) -> str:
         """渲染并推送测试图，返回给用户的文字说明。"""
-        path = await self.notifier.dispatch_test(session, notification)
-        if path is None:
-            return (
-                f"渲染或推送失败（{source}）。\n"
-                "请检查日志：渲染失败通常是字体问题，推送失败通常是会话/适配器问题。"
-            )
-        return (
+        outcome = await self.notifier.dispatch_test(session, notification)
+
+        header = (
             f"🧪 测试通知已推送（{source}）\n"
             f"标题: {notification.title or '（无标题）'}\n"
             f"频道: {notification.channel_name or notification.channel_id or '未知'}\n"
             f"链接: {notification.url}\n"
             f"渲染链路与真实推送完全一致，仅图上多了「测试」标记。{note}"
+        )
+
+        if outcome.delivered:
+            return header
+
+        if outcome.uncertain:
+            # 适配器超时但消息通常已送达（NapCat 的已知现象）。
+            # 别让用户以为失败了 —— 他明明收到了图。
+            return (
+                f"🧪 测试通知已发送（{source}），但适配器上报了超时：\n"
+                f"  {outcome.error}\n"
+                "这通常是 NapCat/QQ 适配器的已知现象：消息**实际已经送达**，"
+                "只是适配器等「消息列表更新」事件超时。请先确认上方是否已收到图片；\n"
+                "插件不会因此重试（重试会导致重复推送）。\n\n"
+                + header.split("\n", 1)[1]
+            )
+
+        if outcome.image_path:
+            return (
+                f"图片已渲染成功，但推送到本会话失败（{source}）。\n"
+                f"原因: {outcome.error}\n"
+                "渲染链路是好的，问题在会话/适配器侧（机器人是否在线、"
+                "会话是否有效、是否有发言权限）。"
+            )
+        return (
+            f"渲染失败（{source}）。\n"
+            f"原因: {outcome.error}\n"
+            "渲染失败通常是字体缺失或配置问题，可运行 "
+            "`python scripts/diagnose.py --check-fonts` 自查。"
         )
 
     # ------------------------------------------------------------ 数据源就绪检查
