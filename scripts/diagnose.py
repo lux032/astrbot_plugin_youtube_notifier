@@ -70,10 +70,85 @@ from astrbot_plugin_youtube_notifier.services.feed import (  # noqa: E402
 from astrbot_plugin_youtube_notifier.services.page_json import (  # noqa: E402
     ChannelPageClient,
 )
+from PIL import ImageFont  # noqa: E402
 
 
 def _line(char: str = "=") -> None:
     print(char * 68)
+
+
+def check_fonts() -> int:
+    """体检中文字体（通知图里中文变方框就是这个原因）。不需要网络。"""
+    from astrbot_plugin_youtube_notifier.utils import (
+        _EMOJI_FONT_CANDIDATES,
+        _FONT_SCAN_DIRS,
+        cjk_font_install_hint,
+        find_cjk_font,
+        font_supports_cjk,
+        resolve_emoji_font_path,
+        resolve_font_path,
+    )
+
+    _line()
+    print("⓪ 字体体检（中文显示为方框时看这里）")
+    _line()
+
+    resolved = resolve_font_path()
+    ok = font_supports_cjk(resolved) if resolved else False
+    print(f"解析到的字体 : {resolved or '(无)'}")
+    print(f"支持中文     : {'✅ 是' if ok else '❌ 否 —— 中文会渲染成方框'}")
+
+    if not ok:
+        print()
+        print(cjk_font_install_hint())
+        print()
+        print("扫描过的目录:")
+        for d in _FONT_SCAN_DIRS:
+            import os as _os
+            print(f"  {'存在' if _os.path.isdir(d) else '不存在'}  {d}")
+        print()
+        print("系统已安装的字体（前 20 个）:")
+        try:
+            import subprocess
+            out = subprocess.run(
+                ["fc-list", ":lang=zh", "family"], capture_output=True, text=True,
+                timeout=10,
+            )
+            families = sorted({f.strip() for f in out.stdout.splitlines() if f.strip()})
+            if families:
+                for f in families[:20]:
+                    print(f"  {f}")
+            else:
+                print("  (fc-list 没有列出任何中文字体 —— 确认未安装)")
+            if not families:
+                print("  提示: 安装字体后重跑本命令确认")
+        except FileNotFoundError:
+            print("  (未安装 fontconfig，无法用 fc-list 检查)")
+        except Exception as exc:  # noqa: BLE001
+            print(f"  (fc-list 调用失败: {exc!r})")
+
+    emoji = resolve_emoji_font_path()
+    print(f"emoji 字体   : {emoji or '(未找到，emoji 会被剥离而不是显示方框)'}")
+    if resolved and ok:
+        # 真渲染一次，肉眼确认没有方框
+        try:
+            from PIL import Image, ImageDraw
+            from astrbot_plugin_youtube_notifier.utils import draw_text_with_emoji
+            font = ImageFont.truetype(resolved, 40)
+            img = Image.new("RGB", (520, 80), (18, 18, 18))
+            draw_text_with_emoji(
+                ImageDraw.Draw(img), (10, 20), "中文渲染测试 字幕组 直播",
+                font, None, fill=(255, 255, 255),
+            )
+            out_path = PLUGIN_ROOT / "data" / "images" / "font_check.png"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            img.save(out_path)
+            print(f"测试图已生成 : {out_path}")
+            print("              （打开确认『中文渲染测试』不是方框）")
+        except Exception as exc:  # noqa: BLE001
+            print(f"(生成字体测试图失败: {exc!r})")
+
+    return 0 if ok else 1
 
 
 async def run_api(channel_input: str, api_key: str, proxy: str, max_results: int) -> int:
@@ -226,14 +301,25 @@ def main() -> int:
     ap.add_argument("--check-feed", action="store_true", help="顺带体检 legacy feed")
     ap.add_argument("--check-page", action="store_true",
                     help="体检网页 JSON 兜底数据源（不需要 API Key）")
+    ap.add_argument("--check-fonts", action="store_true",
+                    help="体检中文字体（通知图中文变方框时用；不需要频道/Key/网络）")
     ap.add_argument("--file", default="", help="离线解析本地 feed XML")
     args = ap.parse_args()
+
+    # 字体体检完全不依赖网络与频道，单独跑完即退出
+    if args.check_fonts and not args.channel:
+        return check_fonts()
 
     if args.file:
         return diagnose_file(args.file)
 
     if not args.channel:
-        ap.error("需要提供频道标识，或用 --file 离线解析")
+        ap.error("需要提供频道标识，或用 --file / --check-fonts 单独体检")
+
+    # 跟着频道一起跑时，字体体检放最前（它最能解释「图里全是方框」）
+    if args.check_fonts:
+        check_fonts()
+        print()
 
     # 只体检网页兜底：不需要 Key，直接跑
     if args.check_page and not args.api_key:

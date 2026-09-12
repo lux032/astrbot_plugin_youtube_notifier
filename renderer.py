@@ -18,7 +18,9 @@ from typing import Optional
 from PIL import Image, ImageDraw, ImageFont
 
 from .utils import (
+    cjk_font_install_hint,
     draw_text_with_emoji,
+    font_supports_cjk,
     format_duration,
     format_time_zh,
     measure_text_with_emoji,
@@ -73,6 +75,18 @@ class NotificationRenderer:
         self._emoji_font_path = resolve_emoji_font_path()
         if not self._emoji_font_path:
             logger.warning("[YT] 未找到 emoji 字体，通知头部将剥离 emoji 字符")
+
+        # 中文渲染能力必须在启动时说清楚。
+        # 踩坑：Linux VPS 常自带 DejaVu 但不带任何中文字体，历史实现会静默
+        # 回退到 DejaVu → 所有中文变豆腐块，日志里却什么异常都没有，
+        # 用户只能看到一堆方框而不知道是缺字体。
+        self.cjk_ok = font_supports_cjk(self._resolved_font_path())
+        if not self.cjk_ok:
+            logger.error(f"[YT] {cjk_font_install_hint()}")
+
+    def _resolved_font_path(self) -> str:
+        """实际会用于渲染的字体路径。"""
+        return resolve_font_path(self.font_path) or ""
 
     # ------------------------------------------------------------ 对外接口
 

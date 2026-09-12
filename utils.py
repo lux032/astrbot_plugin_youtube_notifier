@@ -159,34 +159,224 @@ _FONT_CANDIDATES = [
     "C:/Windows/Fonts/simhei.ttf",      # 黑体
     "C:/Windows/Fonts/simsun.ttc",      # 宋体
     "C:/Windows/Fonts/Deng.ttf",        # 等线
-    # Linux / macOS
+    # Debian / Ubuntu（apt-get install fonts-noto-cjk）
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+    # 某些发行版把 noto-cjk 放在别处
     "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    # 文泉驿（apt-get install fonts-wqy-microhei / fonts-wqy-zenhei）
+    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+    "/usr/share/fonts/wenquanyi/wqy-microhei/wqy-microhei.ttc",
+    # 文鼎（apt-get install fonts-arphic-uming / -ukai）
+    "/usr/share/fonts/truetype/arphic/uming.ttc",
+    "/usr/share/fonts/truetype/arphic/ukai.ttc",
+    # Droid Sans Fallback（fonts-droid-fallback，最小化系统的常见兜底）
+    "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+    # 思源黑体（手动安装）
+    "/usr/share/fonts/opentype/source-han-sans/SourceHanSans-Regular.otf",
+    "/usr/share/fonts/truetype/source-han-sans/SourceHanSans-Regular.otf",
+    # macOS
     "/System/Library/Fonts/PingFang.ttc",
     "/System/Library/Fonts/STHeiti Light.ttc",
+    "/System/Library/Fonts/Hiragino Sans GB.ttc",
 ]
 
+# 纯拉丁字体：**不含任何中文字形**，只能作为最后手段。
+# ⚠️ 绝不能把它当成「找到中文字体」：在 Debian/Ubuntu 最小化安装上
+# DejaVu 一定存在而中文字体可能没装，若把它排在中文字体之前（历史 bug），
+# 就会静默命中 DejaVu → 所有中文渲染成豆腐块，且没有任何报错。
+_FALLBACK_LATIN_FONTS = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "C:/Windows/Fonts/arial.ttf",
+]
 
-def resolve_font_path(override: Optional[str] = None) -> Optional[str]:
-    """按序解析可用中文字体路径；override 存在且有效时优先。"""
-    if override and os.path.exists(override):
-        return override
+# 找不到显式路径时，在这些目录里扫一遍（按需、带缓存）
+_FONT_SCAN_DIRS = [
+    "/usr/share/fonts",
+    "/usr/local/share/fonts",
+    "/usr/share/fonts/truetype",
+    os.path.expanduser("~/.fonts"),
+    os.path.expanduser("~/.local/share/fonts"),
+]
+
+# 扫描时优先测试的文件名特征（命中这些先试，多数情况能立刻找到）
+_CJK_NAME_HINTS = (
+    "notosanscjk", "notoserifcjk", "sourcehansans", "sourcehanserif",
+    "wqy", "droid", "arphic", "uming", "ukai",
+    "msyh", "simhei", "simsun", "deng", "pingfang", "heiti",
+    "unifont", "hanazono", "notosanssc", "notosanstc", "notosansjp",
+)
+
+_FONT_EXTS = (".ttf", ".ttc", ".otf", ".otc")
+
+# 中文探测字符与「必定缺字」的私用区字符
+_CJK_PROBE = "中"
+_MISSING_PROBE = "\ue000"
+
+_CJK_SUPPORT_CACHE: dict[str, bool] = {}
+_RESOLVED_FONT: Optional[str] = None
+_RESOLVED_DONE = False
+
+
+def font_supports_cjk(path: str, size: int = 40) -> bool:
+    """判断字体是否真的含中文字形。
+
+    做法：把中文字的位图与一个**私用区字符**（U+E000，几乎必定缺字）的
+    位图比对 —— 字体没有该字形时两者都会退化成同一个 .notdef 豆腐块。
+    这是唯一不依赖 fontTools / FreeType 内部接口的可靠办法：
+    `os.path.exists` 只能说明「文件在」，说明不了「能画中文」。
+
+    Note:
+        实测对照：msyh.ttc → False（中文位图与缺字位图不同，支持中文）；
+        arial.ttf → True（两者一致，即中文也是豆腐块）。
+    """
+    if not path:
+        return False
+    if path in _CJK_SUPPORT_CACHE:
+        return _CJK_SUPPORT_CACHE[path]
+    result = False
+    try:
+        # 延迟导入：utils 被多个不需要绘图的模块引用，不该因为 Pillow
+        # 缺失而整个包导入失败（renderer 会先一步报出真正的原因）
+        from PIL import ImageFont
+    except ImportError:  # pragma: no cover - 正常安装都会有 Pillow
+        logger.error("[YT] 未安装 Pillow，无法检测字体中文支持（pip install pillow）")
+        return True
+    try:
+        font = ImageFont.truetype(path, size)
+        cjk_mask = font.getmask(_CJK_PROBE)
+        missing_mask = font.getmask(_MISSING_PROBE)
+        # 中文与「必定缺字」位图一致 → 说明中文也走的 .notdef
+        result = bytes(cjk_mask) != bytes(missing_mask)
+    except Exception as exc:  # noqa: BLE001 - 字体损坏/不支持时视为不可用
+        logger.warning(f"[YT] 字体可用性检测失败 {path}: {exc!r}")
+        result = False
+    _CJK_SUPPORT_CACHE[path] = result
+    return result
+
+
+def _iter_scan_fonts() -> list[str]:
+    """扫描常见字体目录，名称像 CJK 字体的排在前面。"""
+    hinted: list[str] = []
+    others: list[str] = []
+    for root_dir in _FONT_SCAN_DIRS:
+        if not os.path.isdir(root_dir):
+            continue
+        for dirpath, _dirnames, filenames in os.walk(root_dir):
+            for name in filenames:
+                if not name.lower().endswith(_FONT_EXTS):
+                    continue
+                full = os.path.join(dirpath, name)
+                # os.walk 返回的是本地分隔符；统一成 POSIX 便于跨平台缓存与展示
+                if os.sep != "/":
+                    full = full.replace(os.sep, "/")
+                if any(hint in name.lower() for hint in _CJK_NAME_HINTS):
+                    hinted.append(full)
+                else:
+                    others.append(full)
+    return hinted + others
+
+
+def find_cjk_font() -> Optional[str]:
+    """找出一个真正能渲染中文的字体；找不到返回 None。
+
+    顺序：① 已知路径（含推荐安装的 Noto CJK）→ ② 扫描字体目录。
+    结果缓存，避免每轮渲染重复扫描文件系统。
+    """
     for path in _FONT_CANDIDATES:
-        if os.path.exists(path):
+        if os.path.exists(path) and font_supports_cjk(path):
+            return path
+
+    for path in _iter_scan_fonts():
+        if font_supports_cjk(path):
+            logger.info(f"[YT] 扫描到可用中文字体: {path}")
             return path
     return None
 
 
+def resolve_font_path(override: Optional[str] = None) -> Optional[str]:
+    """解析可用的**中文字体**路径。
+
+    Args:
+        override: 配置项 render.font_path。存在且可用时优先；
+            配置了但不可用会明确告警（而不是静默忽略，那会让人以为生效了）。
+
+    Returns:
+        可渲染中文的字体路径；实在找不到中文字体时返回纯拉丁字体兜底
+        （此时中文会变豆腐块，调用方应据 font_supports_cjk 告警），
+        连拉丁字体都没有则返回 None。
+    """
+    global _RESOLVED_FONT, _RESOLVED_DONE
+
+    if override:
+        if not os.path.exists(override):
+            logger.error(
+                f"[YT] 配置的 render.font_path 不存在，已忽略并自动选择: {override}"
+            )
+        elif not font_supports_cjk(override):
+            logger.error(
+                f"[YT] 配置的 render.font_path 不含中文字形（中文会显示为方框）: "
+                f"{override}"
+            )
+            return override  # 用户显式指定了，尊重其选择但已告警
+        else:
+            return override
+
+    if _RESOLVED_DONE and _RESOLVED_FONT:
+        return _RESOLVED_FONT
+
+    found = find_cjk_font()
+    if found:
+        _RESOLVED_FONT, _RESOLVED_DONE = found, True
+        return found
+
+    for path in _FALLBACK_LATIN_FONTS:
+        if os.path.exists(path):
+            _RESOLVED_DONE = True
+            return path
+    _RESOLVED_DONE = True
+    return None
+
+
+def cjk_font_install_hint() -> str:
+    """没找到中文字体时给用户的可执行修复指引。"""
+    return (
+        "未找到任何中文字体，通知图里的中文会渲染成方框。请任选一种修复：\n"
+        "  ① Debian/Ubuntu:  apt-get install -y fonts-noto-cjk\n"
+        "  ② CentOS/RHEL/Fedora:  dnf install -y google-noto-sans-cjk-fonts\n"
+        "  ③ Alpine:  apk add font-noto-cjk\n"
+        "  ④ Arch:  pacman -S noto-fonts-cjk\n"
+        "  ⑤ 或把任意中文字体文件放到服务器上，并把插件配置项 "
+        "render.font_path 设为该文件的绝对路径\n"
+        "装好后可用 `fc-list :lang=zh | head` 确认，然后重载插件。"
+    )
+
+
 def resolve_bold_font_path(regular_path: Optional[str], override: Optional[str] = None) -> Optional[str]:
-    """尝试为常规字体找到粗体变体。"""
+    """尝试为常规字体找到粗体变体；找不到返回 None（调用方回退到常规字体）。
+
+    候选粗体也要求含中文字形：否则 msyh.ttc（含中文）可能匹配到某个
+    纯拉丁的粗体文件，标题里的中文就变方框了。
+    """
     if override and os.path.exists(override):
         return override
     if not regular_path:
         return None
     name, ext = os.path.splitext(regular_path)
-    for candidate in (name + "bd" + ext, name + "bd.ttc", name.replace("Regular", "Bold")):
-        if os.path.exists(candidate):
+    for candidate in (
+        # Noto CJK 的粗体是 -Bold 后缀
+        regular_path.replace("Regular", "Bold"),
+        name + "bd" + ext,
+        name + "bd.ttc",
+    ):
+        if candidate == regular_path:
+            continue
+        if os.path.exists(candidate) and font_supports_cjk(candidate):
             return candidate
     return None
 

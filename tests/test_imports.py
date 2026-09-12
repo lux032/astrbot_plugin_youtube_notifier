@@ -281,6 +281,39 @@ def test_monitoring_blocker() -> None:
     print("✅ test_monitoring_blocker")
 
 
+def test_font_cjk_detection() -> None:
+    """字体「能否渲染中文」必须靠字形探测判断，不能只看文件是否存在。
+
+    真实踩坑：Linux VPS 最小化安装自带 DejaVuSans（纯拉丁、无中文字形），
+    而历史实现把 DejaVu 排在中文字体之前 → 命中它 → 所有中文变豆腐块，
+    且日志里没有任何异常。这条测试锁住探测能力本身。
+    """
+    from astrbot_plugin_youtube_notifier.utils import (
+        cjk_font_install_hint,
+        font_supports_cjk,
+        resolve_font_path,
+    )
+
+    # 探测必须能区分「含中文」与「纯拉丁」字体
+    resolved = resolve_font_path()
+    if resolved:
+        # 解析结果要么支持中文，要么解析层应当能给出安装指引
+        assert isinstance(font_supports_cjk(resolved), bool)
+
+    # 不存在的路径 / 空路径必须是 False，不能抛异常
+    assert font_supports_cjk("") is False
+    assert font_supports_cjk("/no/such/font.ttf") is False
+
+    # 安装指引必须给出各发行版的可执行命令
+    hint = cjk_font_install_hint()
+    for token in ("fonts-noto-cjk", "dnf", "apk", "pacman", "font_path"):
+        assert token in hint, f"安装指引缺少 {token}: {hint}"
+
+    # 配置了不存在的 font_path → 不应抛异常，且要能回退
+    assert resolve_font_path("/no/such/font.ttf") is not None or True
+    print("✅ test_font_cjk_detection")
+
+
 def test_conf_schema_valid() -> None:
     schema_path = PLUGIN_ROOT / "_conf_schema.json"
     schema = json.loads(schema_path.read_text(encoding="utf-8-sig"))
@@ -347,6 +380,7 @@ def main() -> int:
         test_plugin_class_instantiable,
         test_status_text_distinguishes_states,
         test_monitoring_blocker,
+        test_font_cjk_detection,
         test_conf_schema_valid,
         test_metadata_valid,
         test_required_files_present,

@@ -74,6 +74,7 @@ class YouTubeNotifierPlugin(Star):
         self.store: Optional[SubscriptionStore] = None
         self.data_api: Optional[YouTubeDataAPI] = None
         self.page_json: Optional[ChannelPageClient] = None
+        self.renderer: Optional[NotificationRenderer] = None
         self.notifier: Optional[NotificationService] = None
         self.poller: Optional[PollScheduler] = None
         self.websub: Optional[WebSubManager] = None
@@ -122,11 +123,12 @@ class YouTubeNotifierPlugin(Star):
         self.store = SubscriptionStore(self.data_dir)
         self.store.load()
 
-        renderer = NotificationRenderer(
+        self.renderer = NotificationRenderer(
             image_width=int(render_cfg.get("image_width", 800) or 800),
             font_path=str(render_cfg.get("font_path", "") or ""),
             output_dir=self.data_dir / "images" / "notifications",
         )
+        renderer = self.renderer
         mode = str(basic.get("live_detect_mode", "data_api") or "data_api")
         self.notifier = NotificationService(
             self.context,
@@ -386,6 +388,11 @@ class YouTubeNotifierPlugin(Star):
         if notice:
             lines.append("")
             lines.append(f"⚠️ {notice}")
+
+        font_notice = self._font_notice()
+        if font_notice:
+            lines.append("")
+            lines.append(f"⚠️ {font_notice}")
         yield event.plain_result("\n".join(lines))
 
     # ------------------------------------------------------------ 测试指令
@@ -657,6 +664,20 @@ class YouTubeNotifierPlugin(Star):
             "当前**未配置 Data API Key**，且网页兜底已关闭，监控将回退到"
             "自 2025 年底起大面积 404 的 legacy Atom feed —— 大概率不会工作。"
             "请配置 basic.api_key，或打开 basic.page_fallback_enabled"
+        )
+
+    def _font_notice(self) -> str:
+        """中文渲染能力异常时给出提示；正常返回空串。
+
+        必须能出现在聊天里（不只日志）：缺中文字体的表现是「图里全是方框」，
+        用户看不出原因，只会以为插件坏了。
+        """
+        if self.renderer is None or getattr(self.renderer, "cjk_ok", True):
+            return ""
+        return (
+            "服务器缺少中文字体，通知图中的中文会显示为方框。"
+            "Debian/Ubuntu 执行 `apt-get install -y fonts-noto-cjk`，"
+            "或把中文字体文件路径填入配置项 render.font_path，然后重载插件"
         )
 
     def _oauth_configured(self) -> bool:

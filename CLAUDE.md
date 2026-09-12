@@ -174,6 +174,8 @@ class ChannelState:
 - metadata.yaml 必需字段：`name/desc/version/author`；依赖走 `requirements.txt`（自动安装）
 - 配置：`_conf_schema.json` 嵌套块 `{"type":"object","items":{...}}`；`AstrBotConfig` 是 dict 子类。
   **不要用 `AstrBotConfig({}, {})` 做兜底**（第一个参数是文件路径，会误读文件）
+- 依赖：`requirements.txt` 必须列出**所有**运行时第三方依赖。`renderer.py` 顶层
+  `import PIL`，所以 pillow 是硬依赖（曾漏列）
 - 后台任务：`asyncio.create_task` 在 `initialize()` 中启动；`terminate()` 中取消。无 `register_task` API
 - 主动推送：`await self.context.send_message(umo, MessageChain().file_image(path))`
 - 指令回复：`yield event.plain_result(text)` / `yield event.chain_result(chain)`
@@ -194,6 +196,13 @@ class ChannelState:
 9. 中文字体：`msyh.ttc` → `simhei.ttf` → `NotoSansCJK` → `DejaVuSans.ttf`；`font_path` 可覆盖
 10. emoji：微软雅黑**不含彩色 emoji**（会渲染成豆腐块）。必须用 `utils.draw_text_with_emoji`
     （emoji 段用 `seguiemj.ttf` + `embedded_color`），并对齐字形墨迹避免裁切
+11. **中文字体必须先验证「含中文字形」，不能只看文件存在**（`font_supports_cjk`）。
+    真实踩坑：Linux VPS 最小化安装自带 `DejaVuSans.ttf`（纯拉丁、无中文字形），
+    而历史候选列表把 DejaVu 排在中文字体**之前** → 静默命中它 → 通知图里所有
+    中文变豆腐块，日志里却毫无异常。禁止把纯拉丁字体混进 CJK 候选链：
+    `_FONT_CANDIDATES` 只放含中文的字体，纯拉丁字体单独放 `_FALLBACK_LATIN_FONTS`
+    且只在确实找不到中文字体时使用（同时必须打 ERROR + 安装指引）。
+    探测方法见 `utils.font_supports_cjk`（私用区字符位图比对）。
 
 ## 测试
 

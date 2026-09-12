@@ -1,1 +1,3 @@
 aiohttp>=3.11.18
+# 文生图通知的渲染依赖（renderer.py 顶层 import PIL）
+pillow>=10.0.0

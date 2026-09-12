@@ -128,6 +128,7 @@ python tests/test_page_json.py      # 网页 JSON 解析 + 降级链（含真实
 
 ```bash
 python scripts/diagnose.py @handle --api-key AIza...   # 完整数据源诊断
+python scripts/diagnose.py --check-fonts                # 只体检中文字体（无需网络）
 python scripts/diagnose.py @handle --check-page         # 只体检网页兜底（无需 Key）
 python scripts/diagnose.py @handle --check-feed         # 顺带体检 legacy feed
 python scripts/diagnose.py --file feed.xml              # 离线解析本地 XML
@@ -157,6 +158,42 @@ services/
 ```
 
 数据保存在插件数据目录 `data/`（已 gitignore）：`state.json` 与 `images/`。
+
+## 常见问题
+
+### VPS 上图里中文全是方框（豆腐块）
+
+**原因**：服务器没装中文字体。Linux 最小化安装通常自带 DejaVuSans（纯拉丁、
+不含任何中文字形），插件会拿它来渲染，于是所有中文变成 `□`。
+
+**修复**（任选其一，装完重载插件）：
+
+```bash
+# Debian / Ubuntu
+apt-get install -y fonts-noto-cjk
+
+# CentOS / RHEL / Fedora
+dnf install -y google-noto-sans-cjk-fonts
+
+# Alpine
+apk add font-noto-cjk
+
+# Arch
+pacman -S noto-fonts-cjk
+```
+
+或者把任意中文字体文件传到服务器，将配置项 `render.font_path` 设为它的
+绝对路径（例如 `/opt/fonts/msyh.ttc`）。
+
+**确认是否修好**：
+
+```bash
+fc-list :lang=zh | head          # 应列出中文字体
+python scripts/diagnose.py --check-fonts   # 会打印判定结果并生成一张测试图
+```
+
+> 插件启动时会自己检测中文字体：缺失时日志里会打出带安装命令的 ERROR，
+> `/yt列表` 也会在聊天里提示 —— 不会让你对着方框猜原因。
 
 ## License
 
