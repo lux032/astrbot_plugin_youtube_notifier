@@ -173,6 +173,9 @@ class ChannelState:
 - 入口 `main.py`，`@register(name, author, desc, version)`；`__init__(self, context, config: AstrBotConfig)`
 - **`register` 必须显式导入**：`from astrbot.api.star import Context, Star, StarTools, register`
 - metadata.yaml 必需字段：`name/desc/version/author`；依赖走 `requirements.txt`（自动安装）
+- **发版要同时改三处**：`metadata.yaml` 的 `version`、`main.py` 的 `@register(..., "vX.Y.Z")`、
+  `CHANGELOG.md` 的对应条目。`test_imports.test_metadata_valid` 锁定了三者一致 ——
+  只改一处会被测试拦下（AstrBot 显示的版本与实际行为不符是真实踩过的坑）。
 - 配置：`_conf_schema.json` 嵌套块 `{"type":"object","items":{...}}`；`AstrBotConfig` 是 dict 子类。
   **不要用 `AstrBotConfig({}, {})` 做兜底**（第一个参数是文件路径，会误读文件）
 - 依赖：`requirements.txt` 必须列出**所有**运行时第三方依赖。`renderer.py` 顶层
@@ -181,6 +184,16 @@ class ChannelState:
 - 主动推送：`await self.context.send_message(umo, MessageChain().file_image(path))`
 - 指令回复：`yield event.plain_result(text)` / `yield event.chain_result(chain)`
 - 命令别名：`@filter.command("yt订阅", alias={"yt_subscribe"})`；typed 参数 `x: str = ""` 自动解析
+- **指令参数是「逐 token」绑定的（实测源码）**：`astrbot/core/star/filter/command.py`
+  把消息按空格 split 后**按位置**赋给形参，所以 `x: str = ""` 只能拿到**第一个**
+  token，第二个之后全被丢掉。要接收「多个空格分隔的参数」只有两条路：
+  ① 用框架的 `GreedyStr`（`astrbot.core.star.filter.command`，注解里不能带默认值，
+  否则 identity 判等失效、退化成单 token）；② 自己从 `event.get_message_str()`
+  剥掉命令名再 split。本项目选 ②（见 `_split_after_command`）：`GreedyStr` 是框架
+  **内部**类型，import 它等于把「整个插件能否加载」押在框架内部结构不变上，
+  而唤醒前缀在 waking_check 阶段已被剥掉，所以 `message_str` 必然是
+  `<命令名> <参数...>`。剥之前必须核对首 token 是**本命令的某个名字**，
+  不匹配就不猜（宁可回用法说明，也不能把 @b 当参数静默订阅错频道）。
 - 插件以**包**形式按点分路径加载 → 相对导入可用（`from .services.x import y`）
 
 ## 工程约束（强制）
@@ -251,6 +264,7 @@ python tests/test_data_api.py       # Data API 输入解析/响应映射/快照�
 python tests/test_page_json.py      # 网页 JSON 解析 + 降级链（含真实页面 fixture）
 python tests/test_cleanup.py        # 图片清理：年龄/总量策略 + 误删防护 + 任务装配
 python tests/test_notifier_send.py  # 推送结果分类（适配器超时 ≠ 推送失败）
+python tests/test_batch_commands.py # 批量订阅/取消订阅：参数切分 + 上限告知 + 本地匹配不耗配额
 ```
 
 测试用 `sys.modules` 注入最简 astrbot 桩，**不依赖 AstrBot 运行时与网络**。
@@ -297,6 +311,19 @@ Windows GBK 控制台需 `sys.stdout.reconfigure(encoding="utf-8")` 才能打印
 7. **宁可少推也不能多推是错的**：判不准的内容宁可交给 `recent_live_ids`
    那道防线，也不要「一律当存档」—— 后者会永久静默漏推真实投稿
    （见网页 JSON 坑 #2）。
+8. **批量命令的「没做」必须逐条说清**（`/yt批量订阅` `/yt批量取消订阅`）：
+   - 单条消息最多 `BATCH_MAX_TARGETS`（20）个：超出的部分在回复里**列出**
+     哪些未处理 + 总数，绝不静默丢弃（否则用户会以为「新增 3 个」= 全办好了）。
+     上限本身是必要的 —— 每个新频道 1 单位 `channels.list` + 2 单位快照，
+     且一条消息几十个网络往返会把消息处理卡到超时。
+   - 批量取消**先在本地订阅里匹配**（频道ID → @handle → 频道名，见
+     `_match_subscription`），匹配不到才查一次 API。原实现（只比对 channel_id
+     后一律查 API）在批量场景下就是按目标个数烧配额，且完全没有 @handle 匹配
+     —— 实测 `/yt取消订阅 @NASA` 每次都要花 1 单位配额。
+   - 降级/未就绪提示只在汇总里出现**一次**（每个频道都附一遍会淹掉回复），
+     判据与 `/yt订阅` 共用 `_monitoring_ready()` / `_degraded_notice()`。
+   - 订阅/取消的实际动作收在 `_subscribe_one` / `_unsubscribe_one`：
+     单条命令与批量命令共用同一份实现，两者行为不许漂移。
 
 ## 已实测验证的关键假设（2026-09-12，真实 API Key）
 

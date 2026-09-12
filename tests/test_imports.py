@@ -426,6 +426,29 @@ def test_metadata_valid() -> None:
     for key in required:
         assert key in text, f"metadata.yaml 缺少必需字段 {key}"
     assert "astrbot_plugin_youtube_notifier" in text
+
+    # 版本号在 metadata.yaml 与 main.py 的 @register 里各写一份，改版本时
+    # 极容易只改一处 —— 那会让 AstrBot 显示的版本与实际行为不符。这里锁死。
+    import re
+
+    from astrbot_plugin_youtube_notifier import main as m
+
+    md_version = re.search(r"^version:\s*(\S+)", text, re.MULTILINE)
+    assert md_version, "metadata.yaml 里读不到 version"
+    src = (PLUGIN_ROOT / "main.py").read_text(encoding="utf-8")
+    reg_version = re.search(r"@register\((.*?)\)\nclass", src, re.DOTALL)
+    assert reg_version, "main.py 里读不到 @register(...)"
+    assert f'"{md_version.group(1)}"' in reg_version.group(1), (
+        f"版本号不一致：metadata.yaml={md_version.group(1)}，"
+        f"main.py 的 @register 里是别的值"
+    )
+
+    # CHANGELOG 必须记录当前版本，否则发版时等于没写
+    changelog = (PLUGIN_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert md_version.group(1) in changelog, (
+        f"CHANGELOG.md 里没有当前版本 {md_version.group(1)} 的条目"
+    )
+    assert m.PLUGIN_NAME == "astrbot_plugin_youtube_notifier"
     print("✅ test_metadata_valid")
 
 
@@ -438,6 +461,7 @@ def test_required_files_present() -> None:
         "CLAUDE.md",
         "PLAN.md",
         "API_GUIDE.md",
+        "CHANGELOG.md",
         "renderer.py",
         "utils.py",
         "scripts/oauth_setup.py",
@@ -448,6 +472,7 @@ def test_required_files_present() -> None:
         "services/cleanup.py",
         "tests/test_cleanup.py",
         "tests/test_notifier_send.py",
+        "tests/test_batch_commands.py",
         # 真实数据 fixture：网页 JSON 降级链的回归基准
         "tests/fixtures/real_channel_streams_live.json",
         "tests/fixtures/real_channel_videos_normal.json",

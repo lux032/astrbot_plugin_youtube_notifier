@@ -4,18 +4,20 @@
 订阅按会话（unified_msg_origin）隔离。
 
 指令：
-    /yt订阅 <channel_id>      订阅频道
-    /yt取消订阅 <channel_id>  取消订阅
-    /yt列表                   查看本会话订阅
-    /yt直播测试 <目标>        抓目标直播并渲染推送一张测试图
-    /yt视频测试 <目标>        抓目标最新视频并渲染推送一张测试图
+    /yt订阅 <channel_id>          订阅频道
+    /yt取消订阅 <channel_id>      取消订阅
+    /yt批量订阅 <目标> <目标>...   批量订阅（空格分隔）
+    /yt批量取消订阅 <目标>...      批量取消订阅（空格分隔）
+    /yt列表                       查看本会话订阅
+    /yt直播测试 <目标>            抓目标直播并渲染推送一张测试图
+    /yt视频测试 <目标>            抓目标最新视频并渲染推送一张测试图
 """
 
 from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 import aiohttp
 from astrbot.api import AstrBotConfig, logger
@@ -55,12 +57,92 @@ from .utils import format_time_zh, register_font_dirs
 PLUGIN_NAME = "astrbot_plugin_youtube_notifier"
 HTTP_TIMEOUT = aiohttp.ClientTimeout(total=30, connect=10)
 
+# 批量命令单条消息最多处理的目标数。每个**新**频道要花 1 单位 channels.list
+# （解析 handle）+ 2 单位快照（playlistItems + videos.list），还要一次网络往返；
+# 不设上限的话，一条粘进来的长列表会连打几十个请求，把消息处理卡到超时、
+# 并且吃掉一天的配额。超出的部分会明确告知用户，不静默丢弃。
+BATCH_MAX_TARGETS = 20
+
+# 批量命令的完整命令名（含别名）。用于从原始消息里剥离命令名，见
+# `_split_after_command()`。改命令名/别名时这里必须同步改。
+_BATCH_SUBSCRIBE_NAMES = frozenset(
+    {"yt批量订阅", "youtube批量订阅", "yt_batch_subscribe"}
+)
+_BATCH_UNSUBSCRIBE_NAMES = frozenset(
+    {"yt批量取消订阅", "youtube批量取消订阅", "yt_batch_unsubscribe"}
+)
+
+_SUBSCRIBE_USAGE = (
+    "用法: /yt订阅 <@handle 或 频道ID 或 频道URL>\n"
+    "例如:\n"
+    "  /yt订阅 @ukaisaki\n"
+    "  /yt订阅 https://www.youtube.com/@ukaisaki\n"
+    "  /yt订阅 UCxxxxxxxxxxxxxxxxxxxxxx"
+)
+
+_BATCH_SUBSCRIBE_USAGE = (
+    "用法: /yt批量订阅 <目标1> <目标2> ...\n"
+    "目标之间用空格分隔，每个目标可以是 @handle / 频道ID / 频道URL\n"
+    "例如:\n"
+    "  /yt批量订阅 @ukaisaki @NASA UCxxxxxxxxxxxxxxxxxxxxxx\n"
+    f"说明: 单条消息最多处理 {BATCH_MAX_TARGETS} 个目标；"
+    "频道名里有空格时请改用 @handle 或频道ID。"
+)
+
+_BATCH_UNSUBSCRIBE_USAGE = (
+    "用法: /yt批量取消订阅 <目标1> <目标2> ...\n"
+    "目标之间用空格分隔，可以是 @handle / 频道ID / 频道名\n"
+    "例如:\n"
+    "  /yt批量取消订阅 @ukaisaki @NASA\n"
+    f"说明: 单条消息最多处理 {BATCH_MAX_TARGETS} 个目标；"
+    "频道名里有空格时请改用 @handle 或频道ID。"
+)
+
+
+class SubscribeOutcome(NamedTuple):
+    """单次订阅的结果。`/yt订阅` 与 `/yt批量订阅` 共用同一份实现。"""
+
+    status: str  # added / exists / failed
+    channel_id: str = ""
+    name: str = ""  # 展示用频道名（拿不到时回退成 channel_id）
+    handle: str = ""  # @handle，用于回复里区分同名频道
+    reason: str = ""  # failed 时的原因代码，见 _SUBSCRIBE_FAIL_*
+
+
+class UnsubscribeOutcome(NamedTuple):
+    """单次取消订阅的结果。"""
+
+    status: str  # removed / missing
+    channel_id: str = ""
+    name: str = ""
+
+
+# 订阅失败的原因代码 → 单条订阅的完整回复（与重构前的文案保持一致）
+_SUBSCRIBE_FAIL_TEXT = {
+    "empty": "频道标识为空，请检查输入",
+    "not_found": "未找到频道: {raw}\n请确认 handle 或频道 ID 是否正确",
+    "quota": "YouTube API 配额已耗尽，请稍后再试",
+    "bad_key": "YouTube API Key 无效，请检查插件配置",
+    "error": "解析频道失败，请稍后重试",
+    "no_id": "未能解析出频道 ID: {raw}",
+}
+
+# 同一个原因代码 → 批量汇总里的短说明（不含输入回显，回显由行首的 raw 负责）
+_SUBSCRIBE_FAIL_SHORT = {
+    "empty": "输入无法识别",
+    "not_found": "未找到频道",
+    "quota": "API 配额已耗尽",
+    "bad_key": "API Key 无效",
+    "error": "解析失败",
+    "no_id": "未能解析出频道 ID",
+}
+
 
 @register(
     PLUGIN_NAME,
     "yuiasami",
     "订阅 YouTube 频道，直播上/下播与新投稿以图片形式推送。",
-    "v1.0.0",
+    "v1.0.1",
 )
 class YouTubeNotifierPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig | None = None):
@@ -243,74 +325,20 @@ class YouTubeNotifierPlugin(Star):
         """订阅 YouTube 频道，格式: /yt订阅 <@handle 或 频道ID 或 频道URL>"""
         raw = (channel_id or "").strip()
         if not raw:
+            yield event.plain_result(_SUBSCRIBE_USAGE)
+            return
+
+        outcome = await self._subscribe_one(event.unified_msg_origin, raw)
+
+        if outcome.status == "failed":
             yield event.plain_result(
-                "用法: /yt订阅 <@handle 或 频道ID 或 频道URL>\n"
-                "例如:\n"
-                "  /yt订阅 @ukaisaki\n"
-                "  /yt订阅 https://www.youtube.com/@ukaisaki\n"
-                "  /yt订阅 UCxxxxxxxxxxxxxxxxxxxxxx"
+                _SUBSCRIBE_FAIL_TEXT.get(outcome.reason, "订阅失败").format(raw=raw)
             )
             return
 
-        kind, value = parse_channel_input(raw)
-        if not value:
-            yield event.plain_result("频道标识为空，请检查输入")
+        if outcome.status == "exists":
+            yield event.plain_result(f"本会话已订阅该频道: {outcome.name}")
             return
-
-        session_id = event.unified_msg_origin
-
-        try:
-            meta, from_api = await self._resolve_channel(raw)
-        except ChannelNotFoundError:
-            yield event.plain_result(f"未找到频道: {raw}\n请确认 handle 或频道 ID 是否正确")
-            return
-        except QuotaExceededError:
-            yield event.plain_result("YouTube API 配额已耗尽，请稍后再试")
-            return
-        except InvalidApiKeyError:
-            yield event.plain_result("YouTube API Key 无效，请检查插件配置")
-            return
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(f"[YT] 订阅时解析频道失败 {raw}: {exc!r}")
-            yield event.plain_result("解析频道失败，请稍后重试")
-            return
-
-        resolved_id = meta.channel_id
-        if not resolved_id:
-            yield event.plain_result(f"未能解析出频道 ID: {raw}")
-            return
-
-        if self.store.has_subscription(session_id, resolved_id):
-            yield event.plain_result(
-                f"本会话已订阅该频道: {meta.title or resolved_id}"
-            )
-            return
-
-        self.store.add_subscription(session_id, resolved_id, meta.title)
-        state = self.store.get_channel_state(resolved_id)
-        if state is not None:
-            if meta.uploads_playlist_id:
-                state.uploads_playlist_id = meta.uploads_playlist_id
-            if meta.handle:
-                state.channel_handle = meta.handle
-            elif kind not in ("id",):
-                state.channel_handle = f"@{value}"
-            # 记录名字来源：抓页面拿到的可能是其它语言，之后要用 API 更正一次
-            state.name_from_api = from_api
-
-        # 静默播种：避免刚订阅就把历史视频/正在进行的直播刷给用户
-        snapshot = await self._fetch_snapshot_quiet(resolved_id, meta)
-        if state is not None and snapshot is not None:
-            seed_channel_from_feed(state, snapshot)
-        await self.store.save()
-
-        if self.websub is not None:
-            await self.websub.subscribe(resolved_id)
-
-        logger.info(
-            f"[YT] 新订阅 session={session_id} channel={resolved_id} "
-            f"name={meta.title} input={raw}"
-        )
 
         # 数据源不可用时必须显式告知：否则订阅「成功」了但监控完全不工作，
         # 用户只会看到含糊的「暂无记录」，误以为一切正常。
@@ -319,8 +347,8 @@ class YouTubeNotifierPlugin(Star):
                 f"[YT] 订阅已保存但监控不会工作：{self._monitoring_blocker()}"
             )
             yield event.plain_result(
-                f"⚠️ 已保存订阅: {meta.title or resolved_id}\n"
-                f"频道ID: {resolved_id}\n\n"
+                f"⚠️ 已保存订阅: {outcome.name}\n"
+                f"频道ID: {outcome.channel_id}\n\n"
                 f"但**监控尚未生效** —— {self._monitoring_blocker()}\n"
                 "修好后即可正常推送，已保存的订阅会自动开始工作。"
             )
@@ -329,17 +357,63 @@ class YouTubeNotifierPlugin(Star):
         notice = self._degraded_notice()
         if notice:
             yield event.plain_result(
-                f"已订阅频道: {meta.title or resolved_id}\n"
-                f"频道ID: {resolved_id}\n"
+                f"已订阅频道: {outcome.name}\n"
+                f"频道ID: {outcome.channel_id}\n"
                 "直播上/下播与新投稿将以图片通知推送。\n\n"
                 f"⚠️ {notice}"
             )
             return
 
         yield event.plain_result(
-            f"已订阅频道: {meta.title or resolved_id}\n"
-            f"频道ID: {resolved_id}\n"
+            f"已订阅频道: {outcome.name}\n"
+            f"频道ID: {outcome.channel_id}\n"
             "直播上/下播与新投稿将以图片通知推送。"
+        )
+
+    @filter.command("yt批量订阅", alias={"yt_batch_subscribe", "youtube批量订阅"})
+    async def batch_subscribe(self, event: AstrMessageEvent, first_target: str = ""):
+        """批量订阅 YouTube 频道，格式: /yt批量订阅 <目标1> <目标2> ...（空格分隔）"""
+        targets = _split_after_command(event, _BATCH_SUBSCRIBE_NAMES, first_target)
+        if not targets:
+            yield event.plain_result(_BATCH_SUBSCRIBE_USAGE)
+            return
+
+        targets, deduped = _dedup_targets(targets)
+        skipped = targets[BATCH_MAX_TARGETS:]
+        targets = targets[:BATCH_MAX_TARGETS]
+
+        session_id = event.unified_msg_origin
+        results: list[tuple[str, SubscribeOutcome]] = []
+        for raw in targets:
+            results.append((raw, await self._subscribe_one(session_id, raw)))
+
+        added = sum(1 for _, o in results if o.status == "added")
+        # 订阅整体「成功」但监控废掉的情况必须提示，且只提示一次
+        # （每个频道都提一遍会把批量回复淹掉）。判据与 /yt订阅 完全一致。
+        if added and not self._monitoring_ready():
+            logger.error(
+                f"[YT] 批量订阅已保存但监控不会工作：{self._monitoring_blocker()}"
+            )
+            notice = (
+                f"订阅已保存，但**监控尚未生效** —— {self._monitoring_blocker()}\n"
+                "修好后即可正常推送，已保存的订阅会自动开始工作。"
+            )
+        else:
+            notice = self._degraded_notice()
+
+        logger.info(
+            f"[YT] 批量订阅 session={session_id} 处理={len(results)} "
+            f"去重={deduped} 超限未处理={len(skipped)} "
+            f"新增={added} 已订阅={sum(1 for _, o in results if o.status == 'exists')} "
+            f"失败={sum(1 for _, o in results if o.status == 'failed')}"
+        )
+
+        yield event.plain_result(
+            "\n".join(
+                _batch_subscribe_lines(
+                    results, deduped=deduped, skipped=skipped, notice=notice
+                )
+            )
         )
 
     @filter.command("yt取消订阅", alias={"yt_unsubscribe", "youtube取消订阅"})
@@ -350,42 +424,41 @@ class YouTubeNotifierPlugin(Star):
             yield event.plain_result("用法: /yt取消订阅 <@handle 或 频道ID>")
             return
 
-        session_id = event.unified_msg_origin
-        # 先按原样匹配，再尝试把 handle 解析成频道 ID 后匹配
-        candidates = [raw]
-        _, value = parse_channel_input(raw)
-        if value:
-            candidates.append(value)
-        target = next(
-            (
-                cid
-                for cid in self.store.get_session_channels(session_id)
-                if cid in candidates
-            ),
-            None,
-        )
-        if target is None:
-            # handle → channel_id 需要一次查询
-            try:
-                meta = await self._resolve_channel(raw)
-                target = meta.channel_id if self.store.has_subscription(
-                    session_id, meta.channel_id
-                ) else None
-            except Exception:  # noqa: BLE001
-                target = None
-        if target is None:
+        outcome = await self._unsubscribe_one(event.unified_msg_origin, raw)
+        if outcome.status == "missing":
             yield event.plain_result(f"本会话未订阅该频道: {raw}")
             return
+        yield event.plain_result(f"已取消订阅: {outcome.channel_id}")
 
-        self.store.remove_subscription(session_id, target)
-        await self.store.save()
+    @filter.command("yt批量取消订阅", alias={"yt_batch_unsubscribe", "youtube批量取消订阅"})
+    async def batch_unsubscribe(self, event: AstrMessageEvent, first_target: str = ""):
+        """批量取消订阅，格式: /yt批量取消订阅 <目标1> <目标2> ...（空格分隔）"""
+        targets = _split_after_command(event, _BATCH_UNSUBSCRIBE_NAMES, first_target)
+        if not targets:
+            yield event.plain_result(_BATCH_UNSUBSCRIBE_USAGE)
+            return
 
-        # 若已无任何会话订阅该频道，向 hub 退订
-        if self.websub is not None and not self.store.sessions_for_channel(target):
-            await self.websub.unsubscribe(target)
+        targets, deduped = _dedup_targets(targets)
+        skipped = targets[BATCH_MAX_TARGETS:]
+        targets = targets[:BATCH_MAX_TARGETS]
 
-        logger.info(f"[YT] 取消订阅 session={session_id} channel={target}")
-        yield event.plain_result(f"已取消订阅: {target}")
+        session_id = event.unified_msg_origin
+        results: list[tuple[str, UnsubscribeOutcome]] = []
+        for raw in targets:
+            results.append((raw, await self._unsubscribe_one(session_id, raw)))
+
+        logger.info(
+            f"[YT] 批量取消订阅 session={session_id} 处理={len(results)} "
+            f"去重={deduped} 超限未处理={len(skipped)} "
+            f"已取消={sum(1 for _, o in results if o.status == 'removed')} "
+            f"未订阅={sum(1 for _, o in results if o.status == 'missing')}"
+        )
+
+        yield event.plain_result(
+            "\n".join(
+                _batch_unsubscribe_lines(results, deduped=deduped, skipped=skipped)
+            )
+        )
 
     @filter.command("yt列表", alias={"yt_list", "youtube列表"})
     async def list_subscriptions(self, event: AstrMessageEvent):
@@ -635,6 +708,163 @@ class YouTubeNotifierPlugin(Star):
             "`python scripts/diagnose.py --check-fonts` 自查。"
         )
 
+    # ------------------------------------------------------------ 订阅公共实现
+
+    async def _subscribe_one(self, session_id: str, raw: str) -> SubscribeOutcome:
+        """订阅单个频道：解析 → 落库 → 静默播种 →（可选）通知 hub。
+
+        `/yt订阅` 与 `/yt批量订阅` 共用。这里只负责「一个频道」这件事，
+        数据源就绪/降级的提示由调用方统一渲染 —— 批量时那些话每个频道都一样，
+        逐条重复只会把回复淹掉。
+        """
+        kind, value = parse_channel_input(raw)
+        if not value:
+            return SubscribeOutcome("failed", reason="empty")
+
+        # 输入本身就是频道 ID 且本会话已订阅 → 不必查 API。
+        # 批量重发同一份 ID 列表时，这一条能省下每个频道 1 单位配额
+        # （原有实现在这种情况下也是先花配额、再回一句「已订阅」）。
+        if kind == "id" and self.store.has_subscription(session_id, value):
+            state = self.store.get_channel_state(value)
+            return SubscribeOutcome(
+                "exists",
+                value,
+                (state.channel_name if state else "") or value,
+                (state.channel_handle if state else ""),
+            )
+
+        try:
+            meta, from_api = await self._resolve_channel(raw)
+        except ChannelNotFoundError:
+            return SubscribeOutcome("failed", reason="not_found")
+        except QuotaExceededError:
+            return SubscribeOutcome("failed", reason="quota")
+        except InvalidApiKeyError:
+            return SubscribeOutcome("failed", reason="bad_key")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[YT] 订阅时解析频道失败 {raw}: {exc!r}")
+            return SubscribeOutcome("failed", reason="error")
+
+        resolved_id = meta.channel_id
+        if not resolved_id:
+            return SubscribeOutcome("failed", reason="no_id")
+
+        display_name = meta.title or resolved_id
+        if self.store.has_subscription(session_id, resolved_id):
+            state = self.store.get_channel_state(resolved_id)
+            return SubscribeOutcome(
+                "exists",
+                resolved_id,
+                display_name,
+                (state.channel_handle if state else "") or meta.handle,
+            )
+
+        self.store.add_subscription(session_id, resolved_id, meta.title)
+        state = self.store.get_channel_state(resolved_id)
+        if state is not None:
+            if meta.uploads_playlist_id:
+                state.uploads_playlist_id = meta.uploads_playlist_id
+            if meta.handle:
+                state.channel_handle = meta.handle
+            elif kind not in ("id",):
+                state.channel_handle = f"@{value}"
+            # 记录名字来源：抓页面拿到的可能是其它语言，之后要用 API 更正一次
+            state.name_from_api = from_api
+
+        # 静默播种：避免刚订阅就把历史视频/正在进行的直播刷给用户
+        snapshot = await self._fetch_snapshot_quiet(resolved_id, meta)
+        if state is not None and snapshot is not None:
+            seed_channel_from_feed(state, snapshot)
+        await self.store.save()
+
+        if self.websub is not None:
+            await self.websub.subscribe(resolved_id)
+
+        logger.info(
+            f"[YT] 新订阅 session={session_id} channel={resolved_id} "
+            f"name={meta.title} input={raw}"
+        )
+        return SubscribeOutcome(
+            "added",
+            resolved_id,
+            display_name,
+            (state.channel_handle if state else "") or meta.handle,
+        )
+
+    async def _unsubscribe_one(self, session_id: str, raw: str) -> UnsubscribeOutcome:
+        """取消本会话对单个频道的订阅。
+
+        先在本地订阅里匹配（不花配额），匹配不到才查一次 API 把 handle
+        换成频道 ID —— 与重构前 `/yt取消订阅` 的行为一致。批量取消时本地
+        匹配是主力：40 个目标逐个查 API 就是 40 单位配额。
+        """
+        # 本会话一个订阅都没有时直接判定「未订阅」：结果与走 API 一致
+        # （没有订阅就不可能订阅着这个频道），但省掉每个目标 1 单位配额。
+        if not self.store.get_session_channels(session_id):
+            return UnsubscribeOutcome("missing")
+
+        target = self._match_subscription(session_id, raw)
+        if target is None:
+            try:
+                meta = await self._resolve_channel(raw)
+                if meta.channel_id and self.store.has_subscription(
+                    session_id, meta.channel_id
+                ):
+                    target = meta.channel_id
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"[YT] 取消订阅时解析频道失败 {raw}: {exc!r}")
+
+        if target is None:
+            return UnsubscribeOutcome("missing")
+
+        state = self.store.get_channel_state(target)
+        name = (state.channel_name if state else "") or ""
+        self.store.remove_subscription(session_id, target)
+        await self.store.save()
+
+        # 若已无任何会话订阅该频道，向 hub 退订
+        if self.websub is not None and not self.store.sessions_for_channel(target):
+            await self.websub.unsubscribe(target)
+
+        logger.info(f"[YT] 取消订阅 session={session_id} channel={target} input={raw}")
+        return UnsubscribeOutcome("removed", target, name)
+
+    def _match_subscription(self, session_id: str, raw: str) -> Optional[str]:
+        """在本会话的订阅里找出 raw 指向的频道 id（没有则 None）。
+
+        匹配优先级：频道 ID → @handle → 频道名。
+        - 频道 ID 大小写敏感（真实 ID 形如 UC + 22 位 base64 字符串），精确比；
+        - handle 在 YouTube 上大小写不敏感，归一化后比（`/yt取消订阅 @NASA`
+          订阅时若存的是 `@nasa` 也要能取消掉）；
+        - 频道名只在完全相等时才算命中 —— 用户常常直接抄名字过来。
+        """
+        channels = self.store.get_session_channels(session_id)
+        if not channels:
+            return None
+
+        candidates = {raw}
+        _, value = parse_channel_input(raw)
+        if value:
+            candidates.add(value)
+
+        for cid in channels:
+            if cid in candidates:
+                return cid
+
+        wanted_handle = _norm_handle(value or raw)
+        if wanted_handle:
+            for cid in channels:
+                state = self.store.get_channel_state(cid)
+                if state and _norm_handle(state.channel_handle) == wanted_handle:
+                    return cid
+
+        wanted_name = raw.strip().casefold()
+        for cid in channels:
+            state = self.store.get_channel_state(cid)
+            if state and state.channel_name.strip().casefold() == wanted_name:
+                return cid
+        return None
+
     # ------------------------------------------------------------ 数据源就绪检查
 
     def _monitoring_ready(self) -> bool:
@@ -838,6 +1068,142 @@ class YouTubeNotifierPlugin(Star):
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"[YT] 订阅播种网页兜底失败 channel={channel_id}: {exc!r}")
         return None
+
+
+def _split_after_command(
+    event: AstrMessageEvent, names: frozenset[str], fallback: str = ""
+) -> list[str]:
+    """取出「命令名之后」的全部参数，按空白切分（批量命令用）。
+
+    为什么不能靠类型注解拿参数：AstrBot 的指令参数是逐 token 绑定的 ——
+    `core/star/filter/command.py` 把消息按空格 split 后**按位置**赋给形参，
+    所以 `x: str = ""` 这样的注解只能拿到第一个 token，第二个之后全被丢掉。
+    批量命令必须自己从原始消息里取。框架在 waking_check 阶段已经把唤醒前缀
+    从 message_str 上剥掉了，所以这里有 `message_str == "<命令名> <参数...>"`。
+
+    为什么不用框架的 `GreedyStr`：它是 `astrbot.core.star.filter.command` 里的
+    内部类型，插件一旦 import 它，就等于把「整个插件能不能加载」押在框架内部
+    结构不变上 —— 这里手动剥一个 token 的代价小得多。
+
+    首个 token 不是本命令的任何名字时**不猜**：宁可回一条用法说明，
+    也不能把用户敲的 @b 当成参数静默订阅下去（那是不可逆的错误订阅）。
+    """
+    text = (event.get_message_str() or "").strip()
+    # 用 split(None, 1) 而不是 partition(" ")：框架是用 `re.sub(r"\s+", " ")`
+    # 归一化之后才判定命令匹配的，所以制表符、全角空格、换行都可能出现在
+    # 命令名后面（那是 str 的 Unicode 空白，None 分隔符一并处理）。
+    parts = text.split(None, 1)
+    head = parts[0] if parts else ""
+    if head not in names:
+        logger.warning(
+            f"[YT] 批量命令参数解析异常：消息首 token {head!r} 不在预期命令名内，"
+            f"已退回类型注解解析（可能只处理第一个目标）"
+        )
+        return [fallback] if fallback else []
+    return parts[1].split() if len(parts) > 1 else []
+
+
+def _dedup_targets(targets: list[str]) -> tuple[list[str], int]:
+    """按字面去重（保持顺序），返回 (去重后的列表, 去掉的个数)。
+
+    只做字面去重：@handle 在 YouTube 上大小写不敏感，但频道 ID 是大小写
+    敏感的，统一转小写去重会把两个合法但不同的频道 ID 误并成一个。
+    真正的重复（本会话已订阅）由 `_subscribe_one` 里的 has_subscription 兜住。
+    """
+    seen: set[str] = set()
+    unique: list[str] = []
+    for target in targets:
+        if target in seen:
+            continue
+        seen.add(target)
+        unique.append(target)
+    return unique, len(targets) - len(unique)
+
+
+def _norm_handle(value: str) -> str:
+    """归一化 handle / 频道名用于匹配：去 @ 前缀与空白，统一小写。"""
+    return (value or "").strip().lstrip("@").casefold()
+
+
+def _channel_label(name: str, handle: str = "") -> str:
+    """拼「名字 (@handle)」；两者本来就是同一个词时不重复显示。"""
+    name = (name or "").strip()
+    handle = (handle or "").strip()
+    if name and handle and _norm_handle(handle) != _norm_handle(name):
+        return f"{name} ({handle})"
+    return name or handle
+
+
+def _batch_notes(deduped: int, skipped: Optional[list[str]]) -> list[str]:
+    """批量回复末尾的说明行：去重提示 + 超出上限未处理的提示。
+
+    超限的部分必须逐条说明（这里最多列出 10 个，剩下的给个数），
+    不能让用户以为「命令说新增 3 个」=「我贴的 30 个都办好了」。
+    """
+    notes: list[str] = []
+    if deduped:
+        notes.append(f"（输入里有 {deduped} 个完全相同的目标，已自动去重）")
+    if skipped:
+        shown = " ".join(skipped[:10])
+        more = f" …（其余 {len(skipped) - 10} 个未列出）" if len(skipped) > 10 else ""
+        notes.append(
+            f"⚠️ 单条消息最多处理 {BATCH_MAX_TARGETS} 个目标，"
+            f"以下 {len(skipped)} 个本次未处理: {shown}{more}"
+        )
+    return notes
+
+
+def _batch_subscribe_lines(
+    results: list[tuple[str, SubscribeOutcome]],
+    *,
+    deduped: int = 0,
+    skipped: Optional[list[str]] = None,
+    notice: str = "",
+) -> list[str]:
+    """渲染 /yt批量订阅 的回复（纯函数，便于离线单测）。"""
+    added = [o for _, o in results if o.status == "added"]
+    exists = [o for _, o in results if o.status == "exists"]
+    failed = [(raw, o) for raw, o in results if o.status == "failed"]
+
+    lines = [
+        f"批量订阅完成：新增 {len(added)} 个 / 已订阅 {len(exists)} 个 / "
+        f"失败 {len(failed)} 个"
+    ]
+    for o in added:
+        lines.append(f"✅ {_channel_label(o.name, o.handle)} — {o.channel_id}")
+    for o in exists:
+        lines.append(f"⏭️ 已订阅: {_channel_label(o.name, o.handle)}")
+    for raw, o in failed:
+        reason = _SUBSCRIBE_FAIL_SHORT.get(o.reason, "订阅失败")
+        lines.append(f"❌ {raw} — {reason}")
+    lines.extend(_batch_notes(deduped, skipped))
+    if notice:
+        lines.append("")
+        lines.append(f"⚠️ {notice}")
+    return lines
+
+
+def _batch_unsubscribe_lines(
+    results: list[tuple[str, UnsubscribeOutcome]],
+    *,
+    deduped: int = 0,
+    skipped: Optional[list[str]] = None,
+) -> list[str]:
+    """渲染 /yt批量取消订阅 的回复（纯函数，便于离线单测）。"""
+    removed = [o for _, o in results if o.status == "removed"]
+    missing = [raw for raw, o in results if o.status == "missing"]
+
+    lines = [
+        f"批量取消订阅完成：已取消 {len(removed)} 个 / 未订阅 {len(missing)} 个"
+    ]
+    for o in removed:
+        label = _channel_label(o.name)
+        prefix = f"{label} — " if label else ""
+        lines.append(f"✅ 已取消订阅: {prefix}{o.channel_id}")
+    for raw in missing:
+        lines.append(f"❌ 未订阅: {raw}")
+    lines.extend(_batch_notes(deduped, skipped))
+    return lines
 
 
 def _cfg_int(cfg: dict, key: str, default: int) -> int:

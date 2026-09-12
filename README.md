@@ -5,7 +5,7 @@ AstrBot 的 YouTube 订阅提醒插件：订阅频道后，**直播上播 / 下�
 
 直接给 `@handle` 就能订阅，例如 `/yt订阅 @ukaisaki`。
 
-> 文档：[实现计划](PLAN.md)｜[项目约束](CLAUDE.md)｜[API 接入指南](API_GUIDE.md)
+> 文档：[实现计划](PLAN.md)｜[项目约束](CLAUDE.md)｜[API 接入指南](API_GUIDE.md)｜[更新日志](CHANGELOG.md)
 
 ## 功能
 
@@ -47,12 +47,31 @@ python scripts/diagnose.py @ukaisaki --api-key AIza...
 |---|---|
 | `/yt订阅 @handle` | 订阅频道，也接受频道ID / 频道URL |
 | `/yt取消订阅 @handle` | 取消本会话的订阅（同样接受 ID / URL）|
+| `/yt批量订阅 <目标> <目标>...` | 一次订阅多个频道，目标之间用**空格**分隔 |
+| `/yt批量取消订阅 <目标>...` | 一次取消多个订阅，目标之间用**空格**分隔 |
 | `/yt列表` | 查看本会话订阅与频道状态 |
 | `/yt直播测试 <目标>` | 抓目标当前直播，渲染推送一张**测试**图 |
 | `/yt视频测试 <目标>` | 抓目标最新视频，渲染推送一张**测试**图 |
 
 支持的输入形式：`@ukaisaki`、`ukaisaki`、`https://www.youtube.com/@ukaisaki`、
 `https://www.youtube.com/channel/UC...`、`UCxxxxxxxxxxxxxxxxxxxxxx`。
+
+### 批量指令
+
+```bash
+/yt批量订阅 @ukaisaki @NASA UCxxxxxxxxxxxxxxxxxxxxxx
+/yt批量取消订阅 @ukaisaki @NASA
+```
+
+- 目标之间用空格分隔；`/yt批量取消订阅` 额外接受**频道名**（如 `NASA`）。
+- 单条消息最多处理 20 个目标；超出的部分会在回复里**逐个列出**说未处理，
+  不会静默丢弃。想订阅更多就分几条发。
+- 回复按结果分组：✅ 新增 / ⏭️ 已订阅 / ❌ 失败（附原因），
+  失败原因会精确到是「未找到频道」还是「API 配额耗尽」。
+- 取消订阅优先在**本地已订阅列表**里匹配（频道ID → @handle → 频道名），
+  匹配不到才会查一次 API，因此批量取消基本不消耗配额。
+- 频道名里含空格时（例如 `Rurudo Lion`）请改用 `@handle` 或频道ID ——
+  空格是分隔符。
 
 ### 测试指令
 
@@ -145,6 +164,7 @@ python tests/test_data_api.py       # Data API 解析与快照组装（mock HTTP
 python tests/test_page_json.py      # 网页 JSON 解析 + 降级链（含真实页面回归）
 python tests/test_cleanup.py        # 图片清理：年龄/总量策略 + 误删防护
 python tests/test_notifier_send.py  # 推送结果分类（适配器超时 ≠ 推送失败）
+python tests/test_batch_commands.py # 批量订阅/取消订阅：参数切分 + 上限 + 本地匹配
 ```
 
 测试全部离线，不依赖 AstrBot 运行时与网络。
