@@ -69,6 +69,7 @@ services/
   state_machine.py         # 直播状态机（纯逻辑，可单测）
   notifier.py              # 检测 → 渲染 → 推送所有订阅会话 + 降级链
   poller.py                # asyncio 后台轮询（默认 300s）
+  cleanup.py               # 通知图定时清理（按年龄 + 按总量，默认每天 4:00）
   websub.py / websub_server.py  # WebSub（默认关闭，见下）
 renderer.py                # PIL 文生图通知（三模板 + 测试标记）
 utils.py                   # 重试退避 / 时间 / 字体 / emoji / 换行 / BROWSER_HEADERS
@@ -196,7 +197,17 @@ class ChannelState:
 9. 中文字体：`msyh.ttc` → `simhei.ttf` → `NotoSansCJK` → `DejaVuSans.ttf`；`font_path` 可覆盖
 10. emoji：微软雅黑**不含彩色 emoji**（会渲染成豆腐块）。必须用 `utils.draw_text_with_emoji`
     （emoji 段用 `seguiemj.ttf` + `embedded_color`），并对齐字形墨迹避免裁切
-11. **中文字体必须先验证「含中文字形」，不能只看文件存在**（`font_supports_cjk`）。
+11. **通知图与封面必须定期清理**（`services/cleanup.py`）。每张约 300–700KB，
+    文件名带 uuid、每次推送新建、永不复用 → 不清理就单调增长写满磁盘
+    （实测 19 张 = 9.7MB）。两条策略同时生效：按年龄（默认 7 天）+ 按总量
+    （默认 500MB 上限，从最旧开始删）。**不可省略的安全约束**：
+    ① 只删指定目录里的图片扩展名，绝不碰 `state.json` 等其它文件；
+    ② 绝不删 `min_keep_seconds`（默认 1 小时）内的文件 —— 刚渲染的图可能还在
+       发送队列里，删了用户收到的就是坏图；③ 单文件删除失败只记日志跳过，
+       cleanup 绝不向上抛异常（否则会打死后台任务）。
+    另外 `retention_days=0` 的语义是「不按天数删」而非「全删」—— 删除不可逆，
+    0 必须取保守解释。两条策略都用 0 = 关闭，保持一致。
+12. **中文字体必须先验证「含中文字形」，不能只看文件存在**（`font_supports_cjk`）。
     真实踩坑：Linux VPS 最小化安装自带 `DejaVuSans.ttf`（纯拉丁、无中文字形），
     而历史候选列表把 DejaVu 排在中文字体**之前** → 静默命中它 → 通知图里所有
     中文变豆腐块，日志里却毫无异常。禁止把纯拉丁字体混进 CJK 候选链：
@@ -212,6 +223,7 @@ python tests/test_state_machine.py  # 状态机 + feed 解析（含真实 feed f
 python tests/test_store.py          # 会话隔离 + 持久化 + 损坏容错
 python tests/test_data_api.py       # Data API 输入解析/响应映射/快照组装（mock HTTP）
 python tests/test_page_json.py      # 网页 JSON 解析 + 降级链（含真实页面 fixture）
+python tests/test_cleanup.py        # 图片清理：年龄/总量策略 + 误删防护 + 任务装配
 ```
 
 测试用 `sys.modules` 注入最简 astrbot 桩，**不依赖 AstrBot 运行时与网络**。

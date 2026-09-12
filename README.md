@@ -91,9 +91,30 @@ python scripts/diagnose.py @ukaisaki --api-key AIza...
 | `max_results` | `5` | 每轮拉取最近多少条视频（1-50） |
 | `proxy` | — | 代理，如 `http://127.0.0.1:7890`（大陆网络通常需要） |
 | `cover_download` | `true` | 是否下载封面到通知图 |
+| `cleanup.enabled` | `true` | **每天定时清理通知图**（见下） |
+| `cleanup.retention_days` | `7` | 删除超过该天数的图片（`0` = 不按天数删） |
+| `cleanup.max_total_mb` | `500` | 图片总量上限，超出则从最旧开始删（`0` = 不限） |
+| `cleanup.hour` | `4` | 每天几点清理（本地时间，0-23） |
+| `cleanup.run_on_startup` | `true` | 启动后也补清理一次 |
 | `notify.*` | 全开 | 分别开关上播/下播/新投稿通知 |
 | `oauth.*` | — | 仅 `livebroadcasts` 模式需要 |
 | `websub.*` | 关闭 | ⚠️ 依赖已不可靠的 feed，不建议启用 |
+
+### 图片会自动清理
+
+每张通知图约 **300–700KB**（含封面），每次推送都新建一个文件、从不复用。
+按 5 分钟轮询 + 几个频道估算，不清理的话磁盘只会单调增长直到写满——
+所以默认**每天凌晨 4 点**清理一次，两条策略同时生效：
+
+- **按年龄**：删除超过 `retention_days`（默认 7 天）的图；
+- **按总量**：清理后若仍超过 `max_total_mb`（默认 500MB），从最旧的继续删到限额内。
+
+无论哪条策略，都**不会删除最近 1 小时内的文件**（可能还在发送队列里），
+也**只删通知图与封面目录里的图片**，不碰 `state.json` 等其它文件。
+
+> bot 若每天重启，可能永远赶不上凌晨 4 点，因此启动约 30 秒后也会补清理一次
+> （`run_on_startup`，默认开）。不想自动清理就设 `cleanup.enabled=false`，
+> 但请自行确保磁盘不会写满。
 
 ### 自动降级（配额用完也不会断）
 
@@ -120,6 +141,7 @@ python tests/test_state_machine.py  # 状态机 + feed 解析（含真实 feed �
 python tests/test_store.py          # 会话隔离 + 持久化
 python tests/test_data_api.py       # Data API 解析与快照组装（mock HTTP）
 python tests/test_page_json.py      # 网页 JSON 解析 + 降级链（含真实页面回归）
+python tests/test_cleanup.py        # 图片清理：年龄/总量策略 + 误删防护
 ```
 
 测试全部离线，不依赖 AstrBot 运行时与网络。
@@ -154,6 +176,7 @@ services/
   state_machine.py      # 直播状态机（纯逻辑）
   poller.py             # asyncio 后台轮询
   notifier.py           # 检测 → 渲染 → 推送 + 降级链
+  cleanup.py            # 通知图定时清理（按年龄 + 按总量）
   websub*.py            # WebSub 推送（默认关闭）
 ```
 

@@ -156,6 +156,7 @@ def test_import_all_modules() -> None:
         "astrbot_plugin_youtube_notifier.services.state_machine",
         "astrbot_plugin_youtube_notifier.services.notifier",
         "astrbot_plugin_youtube_notifier.services.poller",
+        "astrbot_plugin_youtube_notifier.services.cleanup",
         "astrbot_plugin_youtube_notifier.services.websub",
         "astrbot_plugin_youtube_notifier.services.websub_server",
         "astrbot_plugin_youtube_notifier.main",
@@ -365,6 +366,8 @@ def test_required_files_present() -> None:
         "services/store.py",
         "services/websub_server.py",
         "services/page_json.py",
+        "services/cleanup.py",
+        "tests/test_cleanup.py",
         # 真实数据 fixture：网页 JSON 降级链的回归基准
         "tests/fixtures/real_channel_streams_live.json",
         "tests/fixtures/real_channel_videos_normal.json",

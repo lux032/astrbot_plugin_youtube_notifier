@@ -56,7 +56,7 @@ services/
   poller.py              # asyncio 后台轮询
   websub.py / websub_server.py   # WebSub（默认关闭）
 renderer.py / utils.py
-tests/                   # 5 个离线测试文件 + 真实 feed / 网页 JSON fixture
+tests/                   # 6 个离线测试文件 + 真实 feed / 网页 JSON fixture
 scripts/diagnose.py / scripts/oauth_setup.py
 ```
 
@@ -103,6 +103,8 @@ scripts/diagnose.py / scripts/oauth_setup.py
 10. ✅ **网页 JSON 兜底**（`page_json.py`）：配额耗尽/请求失败/无 Key 时自动降级
 11. ✅ **测试指令** `/yt直播测试` `/yt视频测试`（走完整抓取→渲染→推送链路）
 12. ✅ 修复：语义性错误（Key 无效/配额耗尽）不再进重试循环（原先白等约 16s/次）
+13. ✅ **中文字体修复**：候选链隔离纯拉丁字体 + 字形探测（`font_supports_cjk`）
+14. ✅ **图片定时清理**（`services/cleanup.py`）：按年龄 + 按总量，含误删防护
 
 ## 验证状态
 
@@ -114,6 +116,9 @@ scripts/diagnose.py / scripts/oauth_setup.py
 | 会话隔离 + 持久化 + 损坏容错 | ✅ 6/6 |
 | Data API 输入解析/响应映射/快照组装（mock） | ✅ 8/8 |
 | 网页 JSON 解析 + 降级链（真实页面 fixture） | ✅ 18/18 |
+| 图片清理（年龄/总量/误删防护/任务装配） | ✅ 12/12 |
+| **图片清理实测：真实目录 9.7MB → 1.6MB** | ✅ **实测** 按总量上限从最旧开始删 |
+| 中文字体字形探测 | ✅ 实测 msyh→支持、arial→不支持 |
 | **Data API 真实 Key：@handle 解析** | ✅ **实测** `@ukaisaki` → `UCNydvA0D7GSuT0c9Zs-zWdw` |
 | **Data API 真实 Key：快照 + 直播状态映射** | ✅ **实测** completed 直播起止时间正确 |
 | **直播流出现在上传播放列表（最关键的地基假设）** | ✅ **实测确认** 正在直播的频道首条即 `liveBroadcastContent=live`，`find_live()` 命中 |
@@ -137,6 +142,7 @@ python tests/test_state_machine.py  # 状态机 + feed 解析（真实 fixture�
 python tests/test_store.py          # 会话隔离 + 持久化
 python tests/test_data_api.py       # Data API（mock HTTP）
 python tests/test_page_json.py      # 网页 JSON 解析 + 降级链（真实页面 fixture）
+python tests/test_cleanup.py        # 图片清理：年龄/总量策略 + 误删防护
 python scripts/diagnose.py @handle --api-key AIza...   # 真实环境诊断
 python scripts/diagnose.py @handle --check-page         # 只体检网页兜底（无需 Key）
 ```

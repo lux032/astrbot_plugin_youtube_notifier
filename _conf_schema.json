@@ -131,6 +131,43 @@
       }
     }
   },
+  "cleanup": {
+    "description": "图片自动清理",
+    "type": "object",
+    "hint": "通知图（每张约 300–700KB）渲染后即完成使命，但每次推送都新建文件，不清理会一直占用磁盘。默认每天凌晨清理一次。",
+    "items": {
+      "enabled": {
+        "description": "启用每日自动清理",
+        "type": "bool",
+        "default": true,
+        "hint": "关闭后完全不清理（连同下方的总量上限也不会生效），通知图会一直堆积到写满磁盘，请确认你有其它清理手段。"
+      },
+      "retention_days": {
+        "description": "图片保留天数",
+        "type": "int",
+        "default": 7,
+        "hint": "删除超过该天数的通知图。填 0 表示不按天数删除（只受总量上限约束）。图片发出后其实就不再需要，留几天只是为了方便回看/排查。"
+      },
+      "max_total_mb": {
+        "description": "图片总量上限（MB）",
+        "type": "int",
+        "default": 500,
+        "hint": "无论天数如何，该目录总量超过此值时从最旧的开始删（保留最近 1 小时内的，避免删掉正在发送的图）。填 0 表示不限制。频道多、推送频繁时这是防写满磁盘的硬保险。"
+      },
+      "hour": {
+        "description": "每天几点清理（0-23，本地时间）",
+        "type": "int",
+        "default": 4,
+        "hint": "默认凌晨 4 点，避开推送高峰。"
+      },
+      "run_on_startup": {
+        "description": "启动后也清理一次",
+        "type": "bool",
+        "default": true,
+        "hint": "bot 若每天重启，可能永远赶不上定时点，开启后启动约 30 秒会补清理一次。"
+      }
+    }
+  },
   "render": {
     "description": "通知图渲染",
     "type": "object",

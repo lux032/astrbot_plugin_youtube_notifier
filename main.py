@@ -23,6 +23,7 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools, register
 
 from .renderer import NotificationRenderer
+from .services.cleanup import ImageCleaner
 from .services.data_api import (
     ApiKeyMissingError,
     ChannelNotFoundError,
@@ -77,6 +78,7 @@ class YouTubeNotifierPlugin(Star):
         self.renderer: Optional[NotificationRenderer] = None
         self.notifier: Optional[NotificationService] = None
         self.poller: Optional[PollScheduler] = None
+        self.cleaner: Optional[ImageCleaner] = None
         self.websub: Optional[WebSubManager] = None
         self.websub_server: Optional[WebSubCallbackServer] = None
         # 运行期降级原因（如「API Key 无效」）。配置检查发现不了这类问题 ——
@@ -92,6 +94,7 @@ class YouTubeNotifierPlugin(Star):
         websub_cfg = cfg.get("websub", {}) or {}
         notify_cfg = cfg.get("notify", {}) or {}
         render_cfg = cfg.get("render", {}) or {}
+        cleanup_cfg = cfg.get("cleanup", {}) or {}
 
         logger.info(f"[YT] 正在初始化 {PLUGIN_NAME} ...")
 
@@ -157,6 +160,23 @@ class YouTubeNotifierPlugin(Star):
         )
         self.poller.start()
 
+        # 通知图与封面都是「用完即弃」的临时文件，必须定期清理，否则磁盘单调增长
+        # （每张 300–700KB，5 分钟轮询 + 几个频道就能一天写满小 VPS）
+        self.cleaner = ImageCleaner(
+            [
+                self.data_dir / "images" / "notifications",
+                self.data_dir / "images" / "covers",
+            ],
+            retention_days=_cfg_int(cleanup_cfg, "retention_days", 7),
+            max_total_mb=_cfg_int(cleanup_cfg, "max_total_mb", 500),
+            hour=_cfg_int(cleanup_cfg, "hour", 4),
+            run_on_startup=bool(cleanup_cfg.get("run_on_startup", True)),
+        )
+        if bool(cleanup_cfg.get("enabled", True)):
+            self.cleaner.start()
+        else:
+            logger.info("[YT] 图片自动清理已关闭（cleanup.enabled=false）")
+
         await self._start_websub(websub_cfg)
 
         api_state = "已配置" if self.data_api.configured else "未配置（走网页兜底）"
@@ -201,6 +221,8 @@ class YouTubeNotifierPlugin(Star):
         logger.info(f"[YT] 正在停止 {PLUGIN_NAME} ...")
         if self.poller is not None:
             await self.poller.stop()
+        if self.cleaner is not None:
+            await self.cleaner.stop()
         if self.websub_server is not None:
             await self.websub_server.stop()
         if self.store is not None:
@@ -782,6 +804,24 @@ class YouTubeNotifierPlugin(Star):
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"[YT] 订阅播种网页兜底失败 channel={channel_id}: {exc!r}")
         return None
+
+
+def _cfg_int(cfg: dict, key: str, default: int) -> int:
+    """读整数配置项；只在「缺失 / 空」时回退默认值。
+
+    ⚠️ 不能用 `cfg.get(key, default) or default`：`0 or default` 会得到
+    default，于是**配置里的 0 被静默吞掉**。而 0 在本项目里是有意义的
+    （cleanup.retention_days=0 表示不按天数删、max_total_mb=0 表示不限制、
+    hour=0 表示午夜清理），实测踩过：填 0 结果按 7 天执行。
+    """
+    value = cfg.get(key)
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        logger.warning(f"[YT] 配置项 {key}={value!r} 不是整数，回退默认值 {default}")
+        return default
 
 
 def _degrade_reason(exc: BaseException) -> str:
