@@ -1,0 +1,140 @@
+{
+  "basic": {
+    "description": "基础设置",
+    "type": "object",
+    "hint": "YouTube 数据源、API Key、轮询间隔、代理与封面下载等基础配置。",
+    "items": {
+      "api_key": {
+        "description": "YouTube Data API Key（必填）",
+        "type": "string",
+        "default": "",
+        "hint": "Google Cloud Console 免费申请（无需 OAuth、不用绑卡）：新建项目 → 启用 YouTube Data API v3 → 凭据 → 创建凭据 → API 密钥。不填则退化为不稳定的网页抓取/legacy feed。"
+      },
+      "live_detect_mode": {
+        "description": "数据源模式",
+        "type": "string",
+        "default": "data_api",
+        "options": ["data_api", "livebroadcasts", "feed", "auto"],
+        "hint": "data_api=官方 Data API（推荐，任意频道，仅需 API Key）；livebroadcasts=LiveBroadcasts API（需下方 OAuth，且只能监控你自己的频道）；feed=legacy Atom feed（⚠️ 该端点自 2025 年底起大量返回 404，已不可靠）；auto=优先 data_api，无 Key 时回退 feed。"
+      },
+      "poll_interval_seconds": {
+        "description": "轮询间隔（秒）",
+        "type": "int",
+        "default": 300,
+        "hint": "默认 300 秒（5 分钟）。Data API 免费配额 10000 单位/天，每频道每轮约消耗 2 单位：60 秒≈3 个频道、300 秒≈17 个频道、600 秒≈34 个频道。"
+      },
+      "max_results": {
+        "description": "每轮拉取的最近视频数",
+        "type": "int",
+        "default": 5,
+        "hint": "每个频道每轮检查最近多少条视频（1-50）。数值越大越能覆盖积压投稿，但对配额无影响（仍是 1 次请求）。"
+      },
+      "proxy": {
+        "description": "代理地址（留空不使用）",
+        "type": "string",
+        "default": "",
+        "hint": "例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080。大陆网络访问 YouTube 通常需要。"
+      },
+      "cover_download": {
+        "description": "下载视频封面",
+        "type": "bool",
+        "default": true,
+        "hint": "渲染通知图时下载封面；关闭则只显示文字卡片。"
+      }
+    }
+  },
+  "oauth": {
+    "description": "OAuth 2.0（直播检测模式为 api 时需要）",
+    "type": "object",
+    "hint": "用于 LiveBroadcasts API。用 scripts/oauth_setup.py 交互生成 refresh_token，或按 API_GUIDE.md 手动配置。",
+    "items": {
+      "client_id": {
+        "description": "OAuth Client ID",
+        "type": "string",
+        "default": ""
+      },
+      "client_secret": {
+        "description": "OAuth Client Secret",
+        "type": "string",
+        "default": ""
+      },
+      "refresh_token": {
+        "description": "OAuth Refresh Token",
+        "type": "string",
+        "default": "",
+        "hint": "通过 device flow 授权后获得，长期有效。插件用它自动换取短效 access_token。"
+      }
+    }
+  },
+  "websub": {
+    "description": "WebSub 实时推送（⚠️ 不建议启用）",
+    "type": "object",
+    "hint": "WebSub 推送的内容正是那个已不可靠的 Atom feed（feeds/videos.xml 自 2025 年底起间歇性 404），hub 可能无法完成校验。默认关闭，新投稿由 Data API 轮询检测即可。",
+    "items": {
+      "enabled": {
+        "description": "启用 WebSub",
+        "type": "bool",
+        "default": false,
+        "hint": "依赖已不可靠的 feed 端点，仅在确认其可用时才开启。"
+      },
+      "callback_url": {
+        "description": "公网回调地址",
+        "type": "string",
+        "default": "",
+        "hint": "例如 https://yt.example.com 或 http://1.2.3.4。完整回调为 <callback_url>/yt/callback。"
+      },
+      "callback_port": {
+        "description": "回调服务端口",
+        "type": "int",
+        "default": 8477,
+        "hint": "插件内置回调 HTTP 服务监听的本地端口。需要在 VPS 防火墙/反向代理放行。"
+      },
+      "verify_token": {
+        "description": "订阅校验 Token",
+        "type": "string",
+        "default": "",
+        "hint": "用于 hub 握手校验与防伪造。建议填一段随机字符串。"
+      }
+    }
+  },
+  "notify": {
+    "description": "通知开关",
+    "type": "object",
+    "hint": "按通知类型控制是否推送。",
+    "items": {
+      "live_start_enabled": {
+        "description": "上播通知",
+        "type": "bool",
+        "default": true
+      },
+      "live_end_enabled": {
+        "description": "下播通知",
+        "type": "bool",
+        "default": true
+      },
+      "new_video_enabled": {
+        "description": "新投稿通知",
+        "type": "bool",
+        "default": true
+      }
+    }
+  },
+  "render": {
+    "description": "通知图渲染",
+    "type": "object",
+    "hint": "文生图通知卡片样式。",
+    "items": {
+      "image_width": {
+        "description": "通知图宽度（像素）",
+        "type": "int",
+        "default": 800
+      },
+      "font_path": {
+        "description": "中文字体路径（留空自动选择）",
+        "type": "string",
+        "default": "",
+        "hint": "留空时按 msyh/NotoSansCJK/DejaVu 顺序自动选择。Linux 上建议填 Noto Sans CJK 字体文件绝对路径。"
+      }
+    }
+  }
+}

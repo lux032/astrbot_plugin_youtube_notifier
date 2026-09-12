@@ -205,3 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# YouTube Notifier 运行期数据与凭据
+data/
+*.token
+*_config.json
+oauth_client.json
